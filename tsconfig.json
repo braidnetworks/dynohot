@@ -1,0 +1,37 @@
+{
+	"compilerOptions": {
+		// Enable `-b`
+		"composite": true,
+
+		// Paths
+		"outDir": "dist",
+		"rootDir": ".",
+		"paths": {
+			"dynohot/import-meta": [ "././import-meta.ts" ],
+		},
+
+		// Language & emit settings
+		"declarationMap": true,
+		"isolatedModules": true,
+		"sourceMap": true,
+		"stripInternal": true,
+		"target": "esnext",
+		"verbatimModuleSyntax": true,
+
+		// Module resolution settings
+		"lib": [ "esnext" ],
+		"module": "nodenext",
+		"moduleResolution": "nodenext",
+		"allowSyntheticDefaultImports": true,
+
+		// Types / strictness
+		"exactOptionalPropertyTypes": true,
+		"noImplicitOverride": true,
+		"noUncheckedIndexedAccess": true,
+		"skipLibCheck": true,
+		"strict": true,
+	},
+
+	"include": [ "." ],
+	"exclude": [ "**/dist", "**/node_modules" ],
+}

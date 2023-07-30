@@ -1,0 +1,37 @@
+{
+	"editor.rulers": [
+		// Comments wrap to 100
+		{ "column": 100, "color": "transparent" },
+		// Visual indicator at 120 columns
+		{ "column": 120 },
+	],
+	"editor.tabSize": 4,
+	"editor.trimAutoWhitespace": true,
+	"eslint.codeActionsOnSave.rules": [
+		// This can change the semantic meaning of a condition without consulting the developer
+		// first.
+		"!@typescript-eslint/no-unnecessary-condition",
+		"!@typescript-eslint/prefer-readonly",
+		"!prefer-const",
+		"*",
+	],
+	"eslint.experimental.useFlatConfig": true,
+	"eslint.rules.customizations": [ {
+		"rule": "eol-last",
+		"severity": "off",
+	}, {
+		"rule": "no-trailing-spaces",
+		"severity": "off",
+	} ],
+	"eslint.useESLintClass": true,
+	"files.exclude": {
+		"**/dist": true,
+		"**/node_modules": true,
+		"**/tsconfig.tsbuildinfo": true,
+	},
+	"files.insertFinalNewline": true,
+	"files.trimTrailingWhitespace": true,
+	"typescript.enablePromptUseWorkspaceTsdk": true,
+	"typescript.preferences.quoteStyle": "double",
+	"typescript.tsdk": "./node_modules/typescript/lib",
+}
