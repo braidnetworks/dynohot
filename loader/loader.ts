@@ -1,4 +1,4 @@
-import type { Load, Resolve } from "./node-loader.js";
+import type { NodeLoad, NodeResolve } from "./node-loader.js";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import fs from "node:fs/promises";
@@ -50,7 +50,7 @@ function maybeThen<Type, Result>(
 }
 
 /** @internal */
-export const resolve: Resolve = (specifier, context, nextResolve) => {
+export const resolve: NodeResolve = (specifier, context, nextResolve) => {
 	// Forward root module to "hot:main"
 	if (context.parentURL === undefined) {
 		return maybeThen(nextResolve(specifier, context), result => ({
@@ -136,7 +136,7 @@ export const resolve: Resolve = (specifier, context, nextResolve) => {
 };
 
 /** @internal */
-export const load: Load = (urlString, context, nextLoad) => {
+export const load: NodeLoad = (urlString, context, nextLoad) => {
 	if (urlString.startsWith("hot:")) {
 		const url = new URL(urlString);
 		switch (url.pathname) {
@@ -178,12 +178,10 @@ export const load: Load = (urlString, context, nextLoad) => {
 							const map = await convertSourceMap.fromMapFileSource(
 								sourceText,
 								(fileName: string) => fs.readFile(new URL(fileName, moduleURL), "utf8"));
-							// console.log(map.toObject());
 							return map?.toObject();
 						} catch {}
 					}();
 					transformModuleSource(moduleURL, importAssertions, sourceText, sourceMap);
-					// throw new Error("arst");
 					return {
 						...result,
 						responseURL: moduleURL,

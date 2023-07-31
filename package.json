@@ -7,6 +7,10 @@
 		"./import-meta": {
 			"types": "./import-meta.d.ts"
 		},
+		"./node-loader": {
+			"import": "./dist/loader/node-loader.d.ts",
+			"types": "./loader/node-loader.js"
+		},
 		"./*": {
 			"import": "./dist/*.js",
 			"types": "./dist/*.d.ts"

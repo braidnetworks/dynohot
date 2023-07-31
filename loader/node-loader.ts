@@ -1,6 +1,5 @@
 // https://nodejs.org/api/esm.html#resolvespecifier-context-nextresolve
-/** @internal */
-export interface ResolveContext {
+interface ResolveContext {
 	/** Export conditions of the relevant `package.json` */
 	conditions: string[];
 
@@ -13,8 +12,7 @@ export interface ResolveContext {
 
 type Format = "builtin" | "commonjs" | "json" | "module" | "wasm";
 
-/** @internal */
-export interface ResolveResult {
+interface ResolveResult {
 	/** A hint to the load hook (it might be ignored) */
 	format?: Format | null | undefined;
 
@@ -28,15 +26,12 @@ export interface ResolveResult {
 	url: string;
 }
 
-/** @internal */
-export type NextResolve = (specifier: string, context: ResolveContext) => MaybePromiseLike<ResolveResult>;
+type NextResolve = (specifier: string, context: ResolveContext) => MaybePromiseLike<ResolveResult>;
 
-/** @internal */
-export type Resolve = (specifier: string, context: ResolveContext, nextResolve: NextResolve) => MaybePromiseLike<ResolveResult>;
+export type NodeResolve = (specifier: string, context: ResolveContext, nextResolve: NextResolve) => MaybePromiseLike<ResolveResult>;
 
 // https://nodejs.org/api/esm.html#loadurl-context-nextload
-/** @internal */
-export interface LoadContext {
+interface LoadContext {
 	/** Export conditions of the relevant `package.json` */
 	conditions: string[];
 
@@ -46,8 +41,7 @@ export interface LoadContext {
 	importAssertions: Record<string, string>;
 }
 
-/** @internal */
-export interface LoadResult {
+interface LoadResult {
 	format: Format;
 	/** Undocumented: Changes the parsed module's filename */
 	responseURL?: string | undefined;
@@ -57,8 +51,6 @@ export interface LoadResult {
 	source: string | ArrayBuffer | Uint8Array;
 }
 
-/** @internal */
-export type NextLoad = (urlString: string, context: LoadContext) => MaybePromiseLike<LoadResult>;
+type NextLoad = (urlString: string, context: LoadContext) => MaybePromiseLike<LoadResult>;
 
-/** @internal */
-export type Load = (urlString: string, context: LoadContext, nextLoad: NextLoad) => MaybePromiseLike<LoadResult>;
+export type NodeLoad = (urlString: string, context: LoadContext, nextLoad: NextLoad) => MaybePromiseLike<LoadResult>;

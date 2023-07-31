@@ -6,9 +6,6 @@
 		// Paths
 		"outDir": "dist",
 		"rootDir": ".",
-		"paths": {
-			"dynohot/import-meta": [ "././import-meta.ts" ],
-		},
 
 		// Language & emit settings
 		"declarationMap": true,
