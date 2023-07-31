@@ -20,37 +20,30 @@ export function traverseBreadthFirst<
 	children: (node: Node) => Iterable<Node>,
 	visit: (node: Node) => Completion,
 ): Completion {
-	const inner = (node: Node) => {
+	const inner = (node: Node, previousCompletion?: MaybePromise<void>) => {
 		node.visitation = current;
 		const nodes = Array.from(children(node));
-		const completion = visit(node);
-		if (completion) {
-			return completion.then(() => iterate(nodes));
-		} else {
-			return iterate(nodes);
-		}
-	};
-	const iterate = (nodes: readonly Node[]): MaybePromise<void> => {
-		const pending: Promise<void>[] = [];
+		const completion = previousCompletion === undefined ? visit(node) : previousCompletion.then(() => visit(node));
+		const pending: Promise<unknown>[] = [];
 		for (const child of nodes) {
 			if (child.visitation !== current) {
-				const completion = inner(child);
-				if (completion) {
-					pending.push(completion);
+				const nextCompletion = inner(child, completion);
+				if (nextCompletion) {
+					pending.push(nextCompletion);
 				}
 			}
 		}
-		if (pending.length > 0) {
-			return Promise.all(pending) as unknown as Promise<void>;
+		if (pending.length === 0) {
+			return completion;
+		} else {
+			return Promise.all(pending);
 		}
 	};
+	assert(!lock);
+	lock = true;
 	const current = ++visitation;
 	const completion = inner(node);
-	if (completion) {
-		void completion.finally(() => {
-			lock = false;
-		});
-	}
+	lock = false;
 	return completion as Completion;
 }
 

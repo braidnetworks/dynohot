@@ -43,7 +43,7 @@ interface ModuleStateEvaluating {
 interface ModuleStateEvaluatingAsync {
 	readonly status: ModuleStatus.evaluatingAsync;
 	readonly environment: ModuleEnvironment;
-	readonly evaluationError?: { error: unknown };
+	readonly completion: Promise<void>;
 }
 
 interface ModuleStateEvaluated {
@@ -158,13 +158,20 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 				if (continuation.async) {
 					return (async () => {
 						assert.equal(this.state.status, ModuleStatus.linked);
+						const completion = async function() {
+							// nb: Wait for next microtask so `state` gets set
+							// eslint-disable-next-line @typescript-eslint/await-thenable
+							await undefined;
+							const next = await continuation.iterator.next(imports);
+							assert(next.done);
+						}();
 						this.state = {
 							status: ModuleStatus.evaluatingAsync,
 							environment: this.state.environment,
+							completion,
 						};
 						try {
-							const next = await continuation.iterator.next(imports);
-							assert(next.done);
+							await completion;
 							this.state = {
 								status: ModuleStatus.evaluated,
 								environment: this.state.environment,
@@ -180,6 +187,10 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 					})();
 				} else {
 					try {
+						this.state = {
+							status: ModuleStatus.evaluating,
+							environment: this.state.environment,
+						};
 						const next = continuation.iterator.next(imports);
 						assert(next.done);
 						this.state = {
@@ -204,7 +215,9 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 				}
 				return;
 
-			// TODO: evaluating, evaluatingAsync
+			case ModuleStatus.evaluatingAsync:
+				return this.state.completion;
+
 			default: assert.fail();
 		}
 	}
@@ -239,8 +252,9 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 
 	async dynamicImport(specifier: string, importAssertions?: Record<string, string>) {
 		assert(
-			this.state.status === ModuleStatus.evaluated ||
-			this.state.status === ModuleStatus.evaluatingAsync);
+			this.state.status === ModuleStatus.evaluating ||
+			this.state.status === ModuleStatus.evaluatingAsync ||
+			this.state.status === ModuleStatus.evaluated);
 		const specifierParams = new URLSearchParams([
 			[ "parent", this.declaration.meta.url ],
 			[ "specifier", specifier ],
@@ -253,7 +267,9 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		didDynamicImport(this.state.environment.hot, controller);
 		if (controller.reloadable) {
 			this.dynamicImports.push(controller);
-			await controller.dispatch();
+			if (!await controller.dispatch()) {
+				await controller.requestUpdate(false);
+			}
 			const instance = controller.select(ReloadableModuleController.selectCurrent);
 			return instance.moduleNamespace(ReloadableModuleController.selectCurrent)();
 		} else {
@@ -276,6 +292,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 
 			default:
 		}
+		this.state = { status: ModuleStatus.new };
 	}
 
 	// 10.4.6.12 ModuleNamespaceCreate ( module, exports )

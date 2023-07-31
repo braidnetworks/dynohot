@@ -19,7 +19,7 @@ const modules = new Map<string, ReloadableModuleController>();
 /** @internal */
 export const requestUpdate = debounceTimer(100, debounceAsync(async () => {
 	assert(root !== null);
-	await ReloadableModuleController.requestUpdate();
+	await root.requestUpdate();
 }));
 
 function makeIterateReloadableControllers(select: SelectModuleInstance) {
@@ -130,8 +130,10 @@ export class ReloadableModuleController implements AbstractModuleController {
 				this.current,
 				makeIterateReloadableInstances(ReloadableModuleController.selectCurrent),
 				node => node.evaluate());
+			return true;
+		} else {
+			return false;
 		}
-		return undefined;
 	}
 
 	// Invoked from transformed module source
@@ -186,49 +188,12 @@ export class ReloadableModuleController implements AbstractModuleController {
 		this.staging = new ReloadableModuleInstance(this, declaration);
 	}
 
-	lookupSpecifier(hot: Hot, specifier: string) {
-		const select = ((): SelectModuleInstance | undefined => {
-			const check = (select: SelectModuleInstance) => {
-				const instance = select(this);
-				if (instance !== null) {
-					if (
-						instance.state.status !== ModuleStatus.new &&
-						instance.state.environment.hot === hot
-					) {
-						return select;
-					}
-				}
-			};
-			return check(ReloadableModuleController.selectCurrent) ?? check(controller => controller.pending);
-		})();
-		if (select !== undefined) {
-			const instance = this.select(select);
-			const entry = instance.declaration.loadedModules.find(entry => entry.specifier === specifier);
-			const controller = entry?.controller();
-			if (controller) {
-				if (controller.reloadable) {
-					return controller;
-				} else {
-					return null;
-				}
-			}
-		}
-	}
-
-	select(select: SelectModuleInstance) {
-		const instance = select(this);
-		assert(instance);
-		return instance;
-	}
-
-	static async requestUpdate() {
-		assert(root !== null);
-
+	async requestUpdate(isHotUpdate = false) {
 		// Check for loaded updates and assign `pending`
 		let hasUpdate = false;
 		let hasUpdatedCode = false;
 		const previousControllers: ReloadableModuleController[] = [];
-		traverseBreadthFirst(root, ReloadableModuleController.iterateCurrent, controller => {
+		traverseBreadthFirst(this, ReloadableModuleController.iterateCurrent, controller => {
 			assert(controller.current !== null);
 			assert(controller.current.state.status !== ModuleStatus.new);
 			assert.equal(controller.pending, null);
@@ -250,7 +215,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 		// Roll back if there's no update
 		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 		if (!hasUpdate) {
-			traverseBreadthFirst(root, ReloadableModuleController.iteratePending, controller => {
+			traverseBreadthFirst(this, ReloadableModuleController.iteratePending, controller => {
 				assert.notEqual(controller.pending, null);
 				controller.pending = null;
 				controller.previous = null;
@@ -265,7 +230,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 		if (hasUpdatedCode) {
 			// Instantiate temporary module instances
-			await traverseBreadthFirst(root, ReloadableModuleController.iteratePending, controller => {
+			await traverseBreadthFirst(this, ReloadableModuleController.iteratePending, controller => {
 				assert(controller.pending !== null);
 				assert.equal(controller.temporary, null);
 				controller.temporary = controller.pending.clone();
@@ -273,14 +238,14 @@ export class ReloadableModuleController implements AbstractModuleController {
 			});
 			try {
 				// Attempt to link
-				traverseDepthFirst(root, ReloadableModuleController.iterateTemporary, controller => {
+				traverseDepthFirst(this, ReloadableModuleController.iterateTemporary, controller => {
 					assert(controller.temporary !== null);
 					controller.temporary.link(controller => controller.temporary);
 				});
 			} catch (error: any) {
 				// Roll back
 				console.error(`[hot] Caught link error: ${error.message}`);
-				await traverseBreadthFirst(root, ReloadableModuleController.iteratePending, controller => {
+				await traverseBreadthFirst(this, ReloadableModuleController.iteratePending, controller => {
 					const { pending } = controller;
 					assert(pending !== null);
 					controller.pending = null;
@@ -289,7 +254,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 				return;
 			} finally {
 				// Cleanup temporary instances
-				await traverseBreadthFirst(root, ReloadableModuleController.iterateTemporary, controller => {
+				await traverseBreadthFirst(this, ReloadableModuleController.iterateTemporary, controller => {
 					const { temporary } = controller;
 					controller.temporary = null;
 					return temporary?.dispose();
@@ -306,7 +271,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 		let reevaluations = 0;
 		let loads = 0;
 		try {
-			await traverseDepthFirst(root, ReloadableModuleController.iteratePending, {
+			await traverseDepthFirst(this, ReloadableModuleController.iteratePending, {
 				join: async (node, cycleNodes) => {
 					assert(node.current !== null);
 					assert(node.current.state.status !== ModuleStatus.new);
@@ -408,7 +373,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 
 		} catch (error) {
 			// Re-link everything to ensure consistent internal state
-			await traverseDepthFirst(root, ReloadableModuleController.iterateCurrent, {
+			await traverseDepthFirst(this, ReloadableModuleController.iterateCurrent, {
 				join: async (node, cycleNodes) => {
 					assert(node.current !== null);
 					node.current.relink(cycleNodes, ReloadableModuleController.selectCurrent);
@@ -423,14 +388,18 @@ export class ReloadableModuleController implements AbstractModuleController {
 					}
 				},
 			});
-			console.error("[hot] Caught error during an update.");
-			console.error(error);
+			if (isHotUpdate) {
+				console.error("[hot] Caught error during an update.");
+				console.error(error);
+			} else {
+				throw error;
+			}
 
 		} finally {
 			// Dispose old modules
-			const nonAcceptedRoot = root.current !== root.previous;
+			const nonAcceptedRoot = this === root && this.current !== this.previous;
 			const currentControllers = new Set<ReloadableModuleController>();
-			traverseBreadthFirst(root, ReloadableModuleController.iterateCurrent, controller => {
+			traverseBreadthFirst(this, ReloadableModuleController.iterateCurrent, controller => {
 				currentControllers.add(controller);
 				assert(controller.pending === null);
 				assert(controller.previous !== null);
@@ -454,5 +423,40 @@ export class ReloadableModuleController implements AbstractModuleController {
 				console.error("[hot] Unaccepted update reached the root module. The application should be restarted!");
 			}
 		}
+	}
+
+	lookupSpecifier(hot: Hot, specifier: string) {
+		const select = ((): SelectModuleInstance | undefined => {
+			const check = (select: SelectModuleInstance) => {
+				const instance = select(this);
+				if (instance !== null) {
+					if (
+						instance.state.status !== ModuleStatus.new &&
+						instance.state.environment.hot === hot
+					) {
+						return select;
+					}
+				}
+			};
+			return check(ReloadableModuleController.selectCurrent) ?? check(controller => controller.pending);
+		})();
+		if (select !== undefined) {
+			const instance = this.select(select);
+			const entry = instance.declaration.loadedModules.find(entry => entry.specifier === specifier);
+			const controller = entry?.controller();
+			if (controller) {
+				if (controller.reloadable) {
+					return controller;
+				} else {
+					return null;
+				}
+			}
+		}
+	}
+
+	select(select: SelectModuleInstance) {
+		const instance = select(this);
+		assert(instance);
+		return instance;
 	}
 }
