@@ -4,6 +4,7 @@
 	"version": "0.1.0",
 	"exports": {
 		".": "./dist/loader/loader.js",
+		"./?*": "./dist/loader/loader.js?*",
 		"./import-meta": {
 			"types": "./import-meta.d.ts"
 		},

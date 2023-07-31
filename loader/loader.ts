@@ -7,6 +7,10 @@ import convertSourceMap from "convert-source-map";
 import Fn from "dynohot/functional";
 import { transformModuleSource } from "./transform.js";
 
+const self = new URL(import.meta.url);
+const ignoreString = self.searchParams.get("ignore");
+const ignorePattern = ignoreString === null ? /[/\\]node_modules[/\\]/ : new RegExp(ignoreString);
+
 const root = String(new URL("..", import.meta.url));
 const runtimeURL = `${root}/runtime/runtime.js`;
 
@@ -169,7 +173,7 @@ export const load: NodeLoad = (urlString, context, nextLoad) => {
 				assert(moduleURL);
 				const importAssertions = extractImportAssertions(url.searchParams);
 				const result = await nextLoad(moduleURL, { ...context, importAssertions });
-				if (result.format === "module") {
+				if (result.format === "module" && !ignorePattern.test(moduleURL)) {
 					const sourceText = typeof result.source === "string"
 						? result.source
 						: Buffer.from(result.source).toString("utf8");
