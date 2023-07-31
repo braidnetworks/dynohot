@@ -28,6 +28,9 @@ export class FileWatcher {
 	private readonly watchers = new Map<string, DirectoryWatcher>();
 
 	watch(url: string, callback: () => void) {
+		if (!url.startsWith("file://")) {
+			return;
+		}
 		const path = fileURLToPath(url);
 		const fileName = basename(path);
 		const directory = dirname(path);
