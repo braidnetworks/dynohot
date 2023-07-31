@@ -454,10 +454,8 @@ const importToGetterVisitor: Visitor<VisitorState> = {
 								[])));
 					}
 				}
-				path.skip();
-			} else {
-				path.skipKey("key");
 			}
+			path.skipKey("key");
 		}
 	},
 };
