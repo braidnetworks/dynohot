@@ -133,7 +133,11 @@ export const resolve: NodeResolve = (specifier, context, nextResolve) => {
 	}
 	// Pass through requests for the runtime
 	if (specifier === "hot:runtime") {
-		return nextResolve(runtimeURL, context);
+		return {
+			shortCircuit: true,
+			format: "module",
+			url: runtimeURL,
+		};
 	}
 	// This import graph has bailed from the "hot:" scheme and is just forwarded to the host.
 	return nextResolve(specifier, context);
