@@ -60,6 +60,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 
 	private static readonly iterateCurrent = makeIterateReloadableControllers(ReloadableModuleController.selectCurrent);
 	private static readonly iteratePending = makeIterateReloadableControllers(controller => controller.pending);
+	private static readonly iteratePrevious = makeIterateReloadableControllers(controller => controller.previous);
 	private static readonly iterateTemporary = makeIterateReloadableControllers(controller => controller.temporary);
 
 	constructor(
@@ -215,7 +216,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 		// Roll back if there's no update
 		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 		if (!hasUpdate) {
-			traverseBreadthFirst(this, ReloadableModuleController.iteratePending, controller => {
+			traverseBreadthFirst(this, ReloadableModuleController.iteratePrevious, controller => {
 				assert.notEqual(controller.pending, null);
 				controller.pending = null;
 				controller.previous = null;
@@ -245,11 +246,13 @@ export class ReloadableModuleController implements AbstractModuleController {
 			} catch (error: any) {
 				// Roll back
 				console.error(`[hot] Caught link error: ${error.message}`);
-				await traverseBreadthFirst(this, ReloadableModuleController.iteratePending, controller => {
-					const { pending } = controller;
-					assert(pending !== null);
+				await traverseBreadthFirst(this, ReloadableModuleController.iteratePrevious, async controller => {
+					assert(controller.pending !== null);
+					if (controller.pending !== controller.current) {
+						await controller.pending.dispose();
+					}
 					controller.pending = null;
-					return pending.dispose();
+					controller.previous = null;
 				});
 				return;
 			} finally {
