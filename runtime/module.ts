@@ -23,7 +23,7 @@ export interface AbstractModuleController {
 	 * Returns a module instance record from a controller which may manage many versions of a
 	 * module.
 	 */
-	select: (select: SelectModuleInstance) => ModuleInstance;
+	select: (select?: SelectModuleInstance) => ModuleInstance;
 }
 
 /**
@@ -59,4 +59,4 @@ export type Resolution = ResolvedBinding | null | undefined;
 export type ResolvedBinding<Type = unknown> = () => Type;
 
 /** @internal */
-export type SelectModuleInstance = (controller: ReloadableModuleController) => ReloadableModuleInstance | null;
+export type SelectModuleInstance = (controller: ReloadableModuleController) => ReloadableModuleInstance | undefined;

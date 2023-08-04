@@ -1,6 +1,7 @@
-import type { ModuleDeclaration } from "./declaration.js";
+import type { ModuleBodyScope, ModuleDeclaration } from "./declaration.js";
 import type { AbstractModuleInstance, ModuleController, ModuleExports, Resolution, SelectModuleInstance } from "./module.js";
 import type { TraverseCyclicState } from "./traverse.js";
+import type { WithResolvers } from "./utility.js";
 import assert from "node:assert/strict";
 import Fn from "dynohot/functional";
 import { ReloadableModuleController } from "./controller.js";
@@ -8,7 +9,7 @@ import { Hot, didDynamicImport } from "./hot.js";
 import { BindingType } from "./module/binding.js";
 import { initializeEnvironment } from "./module/initialize.js";
 import { ModuleStatus } from "./module.js";
-import { moduleNamespacePropertyDescriptor } from "./utility.js";
+import { moduleNamespacePropertyDescriptor, withResolvers } from "./utility.js";
 
 type ModuleState =
 	ModuleStateNew |
@@ -33,17 +34,19 @@ interface ModuleStateLinked {
 	readonly continuation: ModuleContinuation;
 	readonly environment: ModuleEnvironment;
 	readonly imports: ModuleExports;
+	readonly completion: WithResolvers<void>;
 }
 
 interface ModuleStateEvaluating {
 	readonly status: ModuleStatus.evaluating;
 	readonly environment: ModuleEnvironment;
+	readonly completion: WithResolvers<void>;
 }
 
 interface ModuleStateEvaluatingAsync {
 	readonly status: ModuleStatus.evaluatingAsync;
 	readonly environment: ModuleEnvironment;
-	readonly completion: Promise<void>;
+	readonly completion: WithResolvers<void>;
 }
 
 interface ModuleStateEvaluated {
@@ -70,13 +73,18 @@ interface ModuleContinuationSync {
 interface ModuleContinuationAsync {
 	readonly async: true;
 	readonly iterator: AsyncIterator<unknown, void, ModuleExports>;
+	readonly previous: Promise<IteratorResult<unknown>>;
 }
 
 /** @internal */
 export class ReloadableModuleInstance implements AbstractModuleInstance {
 	readonly reloadable = true;
 
-	dynamicImports: ReloadableModuleController[] = [];
+	dynamicImports: {
+		readonly controller: ReloadableModuleController;
+		readonly specifier: string;
+	}[] = [];
+
 	state: ModuleState = { status: ModuleStatus.new };
 	traversalState: TraverseCyclicState | undefined;
 	visitation = 0;
@@ -91,31 +99,38 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		return new ReloadableModuleInstance(this.controller, this.declaration);
 	}
 
-	async instantiate(data?: unknown) {
+	instantiate(data?: unknown) {
 		if (this.state.status === ModuleStatus.new) {
 			const hot = new Hot(this.controller, this.declaration.usesDynamicImport, data);
-			const importMeta = Object.assign(Object.create(this.declaration.meta), { dynoHot: hot, hot });
+			const importMeta = Object.assign(Object.create(this.declaration.meta), {
+				dynoHot: hot,
+				hot,
+				url: this.controller.url,
+			});
 			const dynamicImport = this.dynamicImport.bind(this);
-			const { continuation, result } = await (async () => {
-				if (this.declaration.body.async) {
-					const iterator = this.declaration.body.execute(importMeta, dynamicImport);
-					const result = await iterator.next();
-					const continuation = { async: true, iterator } as const;
-					return { continuation, result } as const;
-				} else {
-					const iterator = this.declaration.body.execute(importMeta, dynamicImport);
-					const result = iterator.next();
-					const continuation = { async: false, iterator } as const;
-					return { continuation, result } as const;
-				}
-			})();
-			assert.equal(result.done, false);
-			const [ replace, exports ] = result.value;
-			this.state = {
-				status: ModuleStatus.linking,
-				continuation,
-				environment: { exports, hot, replace },
-			};
+			if (this.declaration.body.async) {
+				let scope: ModuleBodyScope | undefined;
+				const accept = (value: ModuleBodyScope) => { scope = value; };
+				const iterator = this.declaration.body.execute(importMeta, dynamicImport, accept);
+				const result = iterator.next();
+				assert(scope !== undefined);
+				const [ replace, exports ] = scope;
+				this.state = {
+					status: ModuleStatus.linking,
+					continuation: { async: true, iterator, previous: result },
+					environment: { exports, hot, replace },
+				};
+			} else {
+				const iterator = this.declaration.body.execute(importMeta, dynamicImport);
+				const result = iterator.next();
+				assert.equal(result.done, false);
+				const [ replace, exports ] = result.value;
+				this.state = {
+					status: ModuleStatus.linking,
+					continuation: { async: false, iterator },
+					environment: { exports, hot, replace },
+				};
+			}
 		}
 	}
 
@@ -147,31 +162,38 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 				continuation: this.state.continuation,
 				environment: this.state.environment,
 				imports: Object.fromEntries(bindings),
+				// eslint-disable-next-line @typescript-eslint/no-invalid-void-type
+				completion: withResolvers<void>(),
 			};
+			this.state.completion.promise.catch(() => {});
 		}
 	}
 
 	evaluate() {
 		switch (this.state.status) {
 			case ModuleStatus.linked: {
-				const { continuation, imports } = this.state;
+				const { completion, continuation, imports } = this.state;
 				if (continuation.async) {
 					return (async () => {
 						assert.equal(this.state.status, ModuleStatus.linked);
-						const completion = async function() {
-							// nb: Wait for next microtask so `state` gets set
-							// eslint-disable-next-line @typescript-eslint/await-thenable
-							await undefined;
+						const promise = (async () => {
+							// nb: This `await` serves two purposes:
+							// - It ensures that the `previous` promise is awaited before the `next`
+							//   promise.
+							// - It also ensures that `state` is set by yielding for a least a
+							//   microtask.
+							await continuation.previous;
 							const next = await continuation.iterator.next(imports);
 							assert(next.done);
-						}();
+						})();
+						promise.then(completion.resolve, completion.reject);
 						this.state = {
 							status: ModuleStatus.evaluatingAsync,
 							environment: this.state.environment,
 							completion,
 						};
 						try {
-							await completion;
+							await promise;
 							this.state = {
 								status: ModuleStatus.evaluated,
 								environment: this.state.environment,
@@ -190,14 +212,17 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 						this.state = {
 							status: ModuleStatus.evaluating,
 							environment: this.state.environment,
+							completion,
 						};
 						const next = continuation.iterator.next(imports);
 						assert(next.done);
+						completion.resolve();
 						this.state = {
 							status: ModuleStatus.evaluated,
 							environment: this.state.environment,
 						};
 					} catch (error) {
+						completion.reject(error);
 						this.state = {
 							status: ModuleStatus.evaluated,
 							environment: this.state.environment,
@@ -216,7 +241,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 				return;
 
 			case ModuleStatus.evaluatingAsync:
-				return this.state.completion;
+				return this.state.completion.promise;
 
 			default: assert.fail();
 		}
@@ -250,40 +275,37 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		}
 	}
 
-	async dynamicImport(specifier: string, importAssertions?: Record<string, string>) {
+	private async dynamicImport(specifier: string, importAssertions?: Record<string, string>) {
 		assert(
 			this.state.status === ModuleStatus.evaluating ||
 			this.state.status === ModuleStatus.evaluatingAsync ||
 			this.state.status === ModuleStatus.evaluated);
 		const specifierParams = new URLSearchParams([
-			[ "parent", this.declaration.meta.url ],
+			[ "parent", this.controller.location ],
 			[ "specifier", specifier ],
 			...Fn.map(
 				Object.entries(importAssertions ?? {}),
 				([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
 		] as Iterable<[ string, string ]>);
-		const { default: acquire } = await import(`hot:import?${String(specifierParams)}`);
-		const controller: ModuleController = acquire();
-		didDynamicImport(this.state.environment.hot, controller);
+		const { default: acquire } = await this.controller.application.dynamicImport(`hot:import?${String(specifierParams)}`, importAssertions);
+		const controller: ModuleController = (acquire as any)();
+		didDynamicImport(this, controller);
 		if (controller.reloadable) {
-			this.dynamicImports.push(controller);
-			if (!await controller.dispatch()) {
-				await controller.requestUpdate(false);
-			}
-			const instance = controller.select(ReloadableModuleController.selectCurrent);
-			return instance.moduleNamespace(ReloadableModuleController.selectCurrent)();
+			this.dynamicImports.push({ controller, specifier });
+			await controller.dispatch();
+			return controller.select().moduleNamespace()();
 		} else {
 			return controller.moduleNamespace()();
 		}
 	}
 
-	async dispose() {
+	destroy() {
 		switch (this.state.status) {
 			case ModuleStatus.linked:
 			case ModuleStatus.linking: {
 				const continuation = this.state.continuation;
 				if (continuation.async) {
-					await continuation.iterator.return?.();
+					void continuation.iterator.return?.();
 				} else {
 					continuation.iterator.return?.();
 				}
@@ -298,7 +320,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 	// 10.4.6.12 ModuleNamespaceCreate ( module, exports )
 	// 16.2.1.6.2 GetExportedNames ( [ exportStarSet ] )
 	// 16.2.1.10 GetModuleNamespace ( module )
-	moduleNamespace(select: SelectModuleInstance) {
+	moduleNamespace(select = ReloadableModuleController.selectCurrent) {
 		if (!this.namespace) {
 			assert(this.state.status !== ModuleStatus.new);
 			const namespace = Object.create(null);

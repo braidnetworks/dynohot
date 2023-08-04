@@ -23,6 +23,8 @@ export function transformModuleSource(
 	sourceMap: unknown,
 ) {
 	const file = parse(sourceText, {
+		babelrc: false,
+		configFile: false,
 		filename,
 		retainLines: true,
 		sourceType: "module",
@@ -291,6 +293,7 @@ function transformProgram(
 	const holderName = program.scope.generateUid("$");
 	const importDynamicName = program.scope.generateUid("import");
 	const importMetaName = program.scope.generateUid("meta");
+	const acceptName = program.scope.generateUid("accept");
 	const visitorState: VisitorState = {
 		holderName,
 		importedLocalNames: new Set(importedBindings.keys()),
@@ -311,20 +314,31 @@ function transformProgram(
 		...importDeclarations,
 		t.functionDeclaration(
 			t.identifier("execute"),
-			[ t.identifier(importMetaName), t.identifier(importDynamicName) ],
+			[
+				t.identifier(importMetaName),
+				t.identifier(importDynamicName),
+				...visitorState.usesTopLevelAwait ? [ t.identifier(acceptName) ] : [],
+			],
 			t.blockStatement([
 				t.variableDeclaration("let", [
 					t.variableDeclarator(
 						t.identifier(holderName),
-						t.yieldExpression(t.arrayExpression([
-							t.arrowFunctionExpression(
-								[ t.identifier("next") ],
-								t.blockStatement([
-									t.expressionStatement(
-										t.assignmentExpression("=", t.identifier(holderName), t.identifier("next"))),
-								])),
-							exportedGetters,
-						]))),
+						t.yieldExpression(function() {
+							const scope = t.arrayExpression([
+								t.arrowFunctionExpression(
+									[ t.identifier("next") ],
+									t.blockStatement([
+										t.expressionStatement(
+											t.assignmentExpression("=", t.identifier(holderName), t.identifier("next"))),
+									])),
+								exportedGetters,
+							]);
+							if (visitorState.usesTopLevelAwait) {
+								return t.callExpression(t.identifier(acceptName), [ scope ]);
+							} else {
+								return scope;
+							}
+						}())),
 				]),
 				...program.node.body,
 			]),

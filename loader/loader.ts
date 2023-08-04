@@ -11,8 +11,8 @@ const self = new URL(import.meta.url);
 const ignoreString = self.searchParams.get("ignore");
 const ignorePattern = ignoreString === null ? /[/\\]node_modules[/\\]/ : new RegExp(ignoreString);
 
-const root = String(new URL("..", import.meta.url));
-const runtimeURL = `${root}/runtime/runtime.js`;
+const root = String(new URL("..", self));
+const runtimeURL = `${root}runtime/runtime.js`;
 
 function extractImportAssertions(params: URLSearchParams) {
 	const entries = Array.from(Fn.transform(
@@ -190,9 +190,21 @@ export const load: NodeLoad = (urlString, context, nextLoad) => {
 						} catch {}
 					}();
 					transformModuleSource(moduleURL, importAssertions, sourceText, sourceMap);
+					// Loaders earlier in the chain are allowed to overwrite `responseURL`, which is
+					// fine, but we need to notate this in the runtime. We will use `moduleURL` as
+					// the watch target, and the parameter also serves disambiguate the module URL
+					// from the response URL. This is a little annoying because we will see the
+					// `?hot=` in stack traces.
+					const responseURL = function() {
+						if (result.responseURL === undefined || result.responseURL === moduleURL) {
+							return moduleURL;
+						} else {
+							return `${result.responseURL}${result.responseURL.includes("?") ? "&" : "?"}hot=${encodeURIComponent(moduleURL)}`;
+						}
+					}();
 					return {
 						...result,
-						responseURL: moduleURL,
+						responseURL,
 						source: transformModuleSource(moduleURL, importAssertions, sourceText, sourceMap),
 					};
 				} else {

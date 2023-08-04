@@ -20,7 +20,7 @@ interface DirectoryWatcher {
 
 interface CallbacksByFile {
 	callbacks: Set<() => void>;
-	dispatch: () => void;
+	dispatch: () => Promise<void>;
 }
 
 /** @internal */
@@ -42,7 +42,7 @@ export class FileWatcher {
 				watcher: fs.watch(directory, { persistent: false }, (type, fileName) => {
 					if (fileName !== null) {
 						const callbacks = callbacksByFile.get(fileName);
-						callbacks?.dispatch();
+						void callbacks?.dispatch();
 					}
 				}),
 			};
@@ -69,7 +69,7 @@ export class FileWatcher {
 					callback();
 				}
 			});
-			dispatch();
+			void dispatch();
 			const byFile = { callbacks, dispatch };
 			directoryWatcher.callbacksByFile.set(fileName, byFile);
 			return byFile;

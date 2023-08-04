@@ -1,7 +1,8 @@
-import type { ReloadableModuleController } from "./controller.js";
-import type { ModuleController } from "./module.js";
+import type { ReloadableModuleInstance } from "./instance.js";
 import assert from "node:assert/strict";
-import { requestUpdate } from "./controller.js";
+import Fn from "dynohot/functional";
+import { ReloadableModuleController } from "./controller.js";
+import { type ModuleController, ModuleStatus } from "./module.js";
 
 // Prior art:
 // https://webpack.js.org/api/hot-module-replacement
@@ -10,27 +11,36 @@ import { requestUpdate } from "./controller.js";
 // https://github.com/rixo/rollup-plugin-hot#api
 
 /** @internal */
-export let didDynamicImport: (hot: Hot, controller: ModuleController) => void;
+export let didDynamicImport: (instance: ReloadableModuleInstance, controller: ModuleController) => void;
 /** @internal */
-export let dispose: (hot: Hot) => Promise<Data>;
+export let dispose: (instance: ReloadableModuleInstance) => Promise<Data>;
 /** @internal */
-export let isInvalidated: (hot: Hot) => boolean;
+export let isAccepted: (instance: ReloadableModuleInstance, modules: readonly ReloadableModuleController[]) => boolean;
 /** @internal */
-export let prune: (hot: Hot) => Promise<void>;
+export let isAcceptedSelf: (instance: ReloadableModuleInstance) => boolean;
 /** @internal */
-export let tryAccept: (hot: Hot, modules: readonly ModuleUpdateEntry[]) => Promise<boolean>;
+export let isDeclined: (instance: ReloadableModuleInstance) => boolean;
 /** @internal */
-export let tryAcceptSelf: (hot: Hot, self: () => ModuleNamespace) => Promise<boolean>;
+export let isInvalidated: (instance: ReloadableModuleInstance) => boolean;
+/** @internal */
+export let prune: (instance: ReloadableModuleInstance) => Promise<void>;
+/** @internal */
+export let tryAccept: (instance: ReloadableModuleInstance, modules: readonly ReloadableModuleController[]) => Promise<boolean>;
+/** @internal */
+export let tryAcceptSelf: (instance: ReloadableModuleInstance, self: () => ModuleNamespace) => Promise<boolean>;
 
 // Duplicated here to make copying the .d.ts file easier
 type Data = Record<keyof any, any>;
 type ModuleNamespace = Record<string, unknown>;
 
-interface ModuleUpdateEntry {
-	controller: ReloadableModuleController;
-	namespace: () => ModuleNamespace;
-	updated: boolean;
-}
+type LocalModuleEntry = {
+	found: true;
+	module: ReloadableModuleController;
+} | {
+	found: false;
+	module: undefined | null;
+	specifier: string;
+};
 
 async function dispatchCheckHandled<Type>(
 	array: readonly Type[],
@@ -47,9 +57,19 @@ async function dispatchCheckHandled<Type>(
 	return true;
 }
 
+function selectHot(instance: ReloadableModuleInstance) {
+	assert(instance.state.status !== ModuleStatus.new);
+	return instance.state.environment.hot;
+}
+
 export class Hot {
-	#accepts: ((entries: readonly ModuleUpdateEntry[]) => Promise<boolean>)[] = [];
+	#accepts: {
+		callback: ((modules: readonly ModuleNamespace[]) => Promise<void> | void) | undefined;
+		localEntries: readonly LocalModuleEntry[];
+	}[] = [];
+
 	#acceptsSelf: ((self: ModuleNamespace) => Promise<boolean>)[] = [];
+	#declined = false;
 	#dispose: ((data: Data) => Promise<void> | void)[] = [];
 	#dynamicImports = new Set<ModuleController>();
 	#invalidated = false;
@@ -68,28 +88,78 @@ export class Hot {
 	}
 
 	static {
-		didDynamicImport = (hot, controller) => hot.#dynamicImports.add(controller);
-		dispose = async hot => {
+		didDynamicImport = (instance, controller) => selectHot(instance).#dynamicImports.add(controller);
+		dispose = async instance => {
 			const data = {};
-			await dispatchCheckHandled(hot.#dispose, async callback => {
+			await dispatchCheckHandled(selectHot(instance).#dispose, async callback => {
 				await callback(data);
 				return true;
 			});
 			return data;
 		};
-		isInvalidated = hot => hot.#invalidated;
-		prune = async hot => {
-			await dispatchCheckHandled(hot.#prune, async callback => {
+		isAccepted = (instance, modules) => {
+			const hot = selectHot(instance);
+			if (hot.#invalidated) {
+				return false;
+			} else {
+				const acceptedModules = new Set(Fn.transform(hot.#accepts, accepts => {
+					const acceptedModules = accepts.localEntries.map(entry =>
+						entry.found ? entry.module : hot.#module.lookupSpecifier(hot, entry.specifier));
+					if (acceptedModules.every(module => module != null)) {
+						return acceptedModules as ReloadableModuleController[];
+					} else {
+						return [];
+					}
+				}));
+				return modules.every(module => acceptedModules.has(module));
+			}
+		};
+		isAcceptedSelf = instance => {
+			const hot = selectHot(instance);
+			return !hot.#invalidated && hot.#acceptsSelf.length > 0;
+		};
+		isDeclined = instance => selectHot(instance).#declined;
+		isInvalidated = instance => selectHot(instance).#invalidated;
+		prune = async instance => {
+			await dispatchCheckHandled(selectHot(instance).#prune, async callback => {
 				await callback();
 				return true;
 			});
 		};
-		tryAccept = async (hot, modules) =>
-			!hot.#invalidated &&
-			dispatchCheckHandled(hot.#accepts, callback => callback(modules));
-		tryAcceptSelf = async (hot, self) =>
-			!hot.#invalidated &&
-			dispatchCheckHandled(hot.#acceptsSelf, callback => callback(self()));
+		tryAccept = async (instance, modules) => {
+			const hot = selectHot(instance);
+			if (hot.#invalidated as boolean) {
+				return false;
+			} else {
+				const acceptedHandlers = Array.from(Fn.filter(Fn.map(hot.#accepts, accepts => {
+					const acceptedModules = accepts.localEntries.map(entry =>
+						entry.found ? entry.module : hot.#module.lookupSpecifier(hot, entry.specifier));
+					if (acceptedModules.every(module => module != null)) {
+						return {
+							callback: accepts.callback,
+							modules: acceptedModules as ReloadableModuleController[],
+						};
+					}
+				})));
+				const acceptedModules = new Set(Fn.transform(acceptedHandlers, handler => handler.modules));
+				if (modules.every(module => acceptedModules.has(module))) {
+					for (const handler of acceptedHandlers) {
+						if (handler.callback && modules.some(module => handler.modules.includes(module))) {
+							const namespaces = handler.modules.map(module => module.select().moduleNamespace()());
+							await handler.callback(namespaces);
+							if (hot.#invalidated) {
+								return false;
+							}
+						}
+					}
+				}
+				return true;
+			}
+		};
+		tryAcceptSelf = async (instance, self) => {
+			const hot = selectHot(instance);
+			return !hot.#invalidated && dispatchCheckHandled(hot.#acceptsSelf, callback => callback(self()));
+		};
 	}
 
 	/**
@@ -122,28 +192,26 @@ export class Hot {
 				await callback?.(modules[0]);
 			});
 		} else if (Array.isArray(arg1)) {
-			const controllers = arg1.map(specifier => this.#module.lookupSpecifier(this, specifier));
-			const callback = arg2 as ((dependency: readonly ModuleNamespace[]) => Promise<void> | void) | undefined;
-			assert(callback === undefined || typeof callback === "function");
-			for (const [ ii, controller ] of controllers.entries()) {
-				if (controller === undefined && !this.#usesDynamicImport) {
-					console.error(`[hot] ${arg1[ii]} was not imported by this module`);
-				} else if (controller === null) {
-					console.error(`[hot] ${arg1[ii]} is not a reloadable module`);
-				}
-			}
-			this.#accepts.push(async entries => {
-				const updates = controllers.map(controller => entries.find(entry => entry.controller === controller));
-				if (updates.some(update => update === undefined)) {
-					return false;
-				} else if (updates.every(update => !update!.updated)) {
-					return true;
+			const localEntries: LocalModuleEntry[] = arg1.map(specifier => {
+				const module = this.#module.lookupSpecifier(this, specifier);
+				if (module == null) {
+					return { found: false, module, specifier };
 				} else {
-					const modules = updates.map(update => update!.namespace());
-					await callback?.(modules);
-					return !this.#invalidated;
+					return { found: true, module };
 				}
 			});
+			const callback = arg2 as ((dependency: readonly ModuleNamespace[]) => Promise<void> | void) | undefined;
+			assert(callback === undefined || typeof callback === "function");
+			for (const [ ii, descriptor ] of localEntries.entries()) {
+				if (!descriptor.found) {
+					if (!this.#usesDynamicImport) {
+						console.trace(`[hot] ${arg1[ii]} was not imported by this module`);
+					} else if (descriptor.module === null) {
+						console.trace(`[hot] ${arg1[ii]} is not a reloadable module`);
+					}
+				}
+			}
+			this.#accepts.push({ localEntries, callback });
 		} else {
 			const callback = arg1 as ((self: ModuleNamespace) => Promise<void> | void) | undefined;
 			this.#acceptsSelf.push(async self => {
@@ -158,7 +226,7 @@ export class Hot {
 	 * fail.
 	 */
 	decline() {
-		console.error("[hot] `decline()` is not yet implemented");
+		this.#declined = true;
 	}
 
 	/**
@@ -177,7 +245,7 @@ export class Hot {
 	 */
 	invalidate() {
 		this.#invalidated = true;
-		requestUpdate();
+		void this.#module.application.requestUpdate();
 	}
 
 	/**

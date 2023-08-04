@@ -108,6 +108,16 @@ export function reduce<Type, Result = Type>(
 }
 
 /**
+ * Iterates an array in reverse without modifying the original array.
+ * @internal
+ */
+export function *reverse<Type>(array: readonly Type[]): IterableIterator<Type> {
+	for (let ii = array.length - 1; ii >= 0; --ii) {
+		yield array[ii]!;
+	}
+}
+
+/**
  * Returns the first element from an iterable, as well as another iterable that will continue after
  * the shifted element.
  * @internal

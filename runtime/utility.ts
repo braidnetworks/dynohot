@@ -1,3 +1,4 @@
+import assert from "node:assert";
 import { createRequire } from "node:module";
 
 /** @internal */
@@ -7,38 +8,52 @@ export const moduleNamespacePropertyDescriptor = {
 } satisfies Partial<PropertyDescriptor>;
 
 /** @internal */
-export function debounceAsync(fn: () => Promise<void>) {
-	let pending = false;
-	let running = false;
-	return () => {
-		if (running) {
-			pending = true;
-			return;
+export function debounceAsync<Result>(fn: () => Promise<Result>) {
+	let pending: Promise<Result> | undefined;
+	let running: Promise<Result> | undefined;
+	async function dispatch() {
+		try {
+			// eslint-disable-next-line @typescript-eslint/await-thenable
+			await undefined;
+			return await fn();
+		} finally {
+			running = undefined;
 		}
-		running = true;
-		void async function() {
-			try {
-				await fn();
-			} finally {
-				running = false;
-				if (pending) {
-					pending = false;
-					await fn();
-				}
-			}
-		}();
+	}
+	return async () => {
+		if (running) {
+			return pending ??= async function() {
+				await running;
+				return dispatch();
+			}();
+		} else {
+			return running = dispatch();
+		}
 	};
 }
 
 /** @internal */
-export function debounceTimer(ms: number, fn: () => void) {
+export function debounceTimer<Result>(ms: number, fn: () => MaybePromise<Result>) {
+	let completion: WithResolvers<Result> | undefined;
 	let timer: NodeJS.Timeout | undefined;
 	return () => {
 		if (timer) {
 			clearTimeout(timer);
 		}
-		timer = setTimeout(fn, ms);
+		timer = setTimeout(() => {
+			void async function() {
+				assert(completion !== undefined);
+				try {
+					completion.resolve(await fn());
+					timer = undefined;
+				} catch (error) {
+					completion.reject(error);
+				}
+			}();
+		}, ms);
 		timer.unref();
+		completion = withResolvers<Result>();
+		return completion.promise;
 	};
 }
 
@@ -68,4 +83,23 @@ export const evictModule = function() {
 /** @internal */
 export function discriminatedTypePredicate<Type extends { type: unknown }, Check extends Type>(type: Check["type"]) {
 	return (node: Type): node is Check => node.type === type;
+}
+
+/** @internal */
+export interface WithResolvers<Type> {
+	readonly promise: Promise<Type>;
+	readonly resolve: (value: Type) => void;
+	readonly reject: (reason: unknown) => void;
+}
+
+// https://github.com/tc39/proposal-promise-with-resolvers
+/** @internal */
+export function withResolvers<Type>() {
+	let resolve: (value: Type) => void;
+	let reject: (reason: unknown) => void;
+	const promise = new Promise<Type>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	return { promise, resolve: resolve!, reject: reject! } as WithResolvers<Type>;
 }

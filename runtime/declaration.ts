@@ -30,10 +30,15 @@ interface ModuleBodySync {
 
 interface ModuleBodyAsync {
 	async: true;
-	execute: (meta: ImportMeta, dynamicImport: DynamicImport) => AsyncGenerator<ModuleBodyScope, void, ModuleExports>;
+	execute: (
+		meta: ImportMeta,
+		dynamicImport: DynamicImport,
+		accepts: (scope: ModuleBodyScope) => void,
+	) => AsyncGenerator<ModuleBodyScope, void, ModuleExports>;
 }
 
-type ModuleBodyScope = [
+/** @internal */
+export type ModuleBodyScope = [
 	replace: (this: void, exports: ModuleExports) => void,
 	/** [[LocalExportEntries]] */
 	exports: ModuleExports,

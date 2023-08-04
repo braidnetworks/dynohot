@@ -1,10 +1,8 @@
 import { AdapterModuleController } from "./adapter.js";
-import { ReloadableModuleController } from "./controller.js";
+import { makeAcquire } from "./controller.js";
 
 /** @internal */
-export function acquire(url: string) {
-	return ReloadableModuleController.acquire(url);
-}
+export const acquire = makeAcquire((specifier, assertions) => import(specifier, assertions));
 
 /** @internal */
 export function adapter(meta: ImportMeta, namespace: Record<string, unknown>) {

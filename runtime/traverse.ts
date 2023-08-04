@@ -42,9 +42,11 @@ export function traverseBreadthFirst<
 	assert(!lock);
 	lock = true;
 	const current = ++visitation;
-	const completion = inner(node);
-	lock = false;
-	return completion as Completion;
+	try {
+		return inner(node) as Completion;
+	} finally {
+		lock = false;
+	}
 }
 
 /**
