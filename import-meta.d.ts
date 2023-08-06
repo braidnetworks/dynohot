@@ -1,4 +1,4 @@
 interface ImportMeta {
-	hot?: import("./hot.ts").Hot;
-	dynoHot?: import("./hot.ts").Hot;
+	readonly hot?: import("./hot.ts").Hot;
+	readonly dynoHot?: import("./hot.ts").Hot;
 }

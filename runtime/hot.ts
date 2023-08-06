@@ -30,7 +30,7 @@ export let tryAccept: (instance: ReloadableModuleInstance, modules: readonly Rel
 export let tryAcceptSelf: (instance: ReloadableModuleInstance, self: () => ModuleNamespace) => Promise<boolean>;
 
 // Duplicated here to make copying the .d.ts file easier
-type Data = Record<keyof any, any>;
+type Data = Record<keyof any, unknown>;
 type ModuleNamespace = Record<string, unknown>;
 
 type LocalModuleEntry = {
@@ -41,21 +41,6 @@ type LocalModuleEntry = {
 	module: undefined | null;
 	specifier: string;
 };
-
-async function dispatchCheckHandled<Type>(
-	array: readonly Type[],
-	predicate: (value: Type) => Promise<boolean>,
-) {
-	if (array.length === 0) {
-		return false;
-	}
-	for (const value of array) {
-		if (!await predicate(value)) {
-			return false;
-		}
-	}
-	return true;
-}
 
 function selectHot(instance: ReloadableModuleInstance) {
 	assert(instance.state.status !== ModuleStatus.new);
@@ -68,7 +53,7 @@ export class Hot {
 		localEntries: readonly LocalModuleEntry[];
 	}[] = [];
 
-	#acceptsSelf: ((self: ModuleNamespace) => Promise<boolean>)[] = [];
+	#acceptsSelf: ((self: () => ModuleNamespace) => MaybePromise<void>)[] = [];
 	#declined = false;
 	#dispose: ((data: Data) => Promise<void> | void)[] = [];
 	#dynamicImports = new Set<ModuleController>();
@@ -91,10 +76,10 @@ export class Hot {
 		didDynamicImport = (instance, controller) => selectHot(instance).#dynamicImports.add(controller);
 		dispose = async instance => {
 			const data = {};
-			await dispatchCheckHandled(selectHot(instance).#dispose, async callback => {
+			const hot = selectHot(instance);
+			for (const callback of Fn.reverse(hot.#dispose)) {
 				await callback(data);
-				return true;
-			});
+			}
 			return data;
 		};
 		isAccepted = (instance, modules) => {
@@ -116,15 +101,15 @@ export class Hot {
 		};
 		isAcceptedSelf = instance => {
 			const hot = selectHot(instance);
-			return !hot.#invalidated && hot.#acceptsSelf.length > 0;
+			return hot.#acceptsSelf.length > 0;
 		};
 		isDeclined = instance => selectHot(instance).#declined;
 		isInvalidated = instance => selectHot(instance).#invalidated;
 		prune = async instance => {
-			await dispatchCheckHandled(selectHot(instance).#prune, async callback => {
+			const hot = selectHot(instance);
+			for (const callback of Fn.reverse(hot.#prune)) {
 				await callback();
-				return true;
-			});
+			}
 		};
 		tryAccept = async (instance, modules) => {
 			const hot = selectHot(instance);
@@ -158,7 +143,14 @@ export class Hot {
 		};
 		tryAcceptSelf = async (instance, self) => {
 			const hot = selectHot(instance);
-			return !hot.#invalidated && dispatchCheckHandled(hot.#acceptsSelf, callback => callback(self()));
+			if (hot.#acceptsSelf.length === 0) {
+				return false;
+			} else {
+				for (const callback of hot.#acceptsSelf) {
+					await callback(self);
+				}
+				return true;
+			}
 		};
 	}
 
@@ -215,8 +207,7 @@ export class Hot {
 		} else {
 			const callback = arg1 as ((self: ModuleNamespace) => Promise<void> | void) | undefined;
 			this.#acceptsSelf.push(async self => {
-				await callback?.(self);
-				return !this.#invalidated;
+				await callback?.(self());
 			});
 		}
 	}

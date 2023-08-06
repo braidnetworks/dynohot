@@ -405,7 +405,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 		let hasUpdatedCode = false as boolean;
 		const declined: ReloadableModuleController[] = [];
 		for (const dispatchRoot of dispatchRoots) {
-			traverseDepthFirst(dispatchRoot, ReloadableModuleController.iterateCurrent, {
+			traverseDepthFirst(dispatchRoot, ReloadableModuleController.iteratePending, {
 				join(cycleRoot, cycleNodes) {
 					assert(cycleRoot.current !== undefined);
 					assert(cycleNodes.every(node => node.current !== undefined));
@@ -592,7 +592,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 									await node.current.state.completion.promise;
 								} catch {}
 							}
-							const data = dispose(node.current);
+							const data = await dispose(node.current);
 							if (node.current === node.pending) {
 								node.current = node.current.clone();
 							} else {
@@ -638,7 +638,8 @@ export class ReloadableModuleController implements AbstractModuleController {
 						// Try self-accept
 						if (cycleNodes.length === 0) {
 							const namespace = () => cycleRoot.current!.moduleNamespace()();
-							cycleRoot.wasSelfAccepted = await tryAcceptSelf(cycleRoot.current, namespace);
+							assert(cycleRoot.previous !== undefined);
+							cycleRoot.wasSelfAccepted = await tryAcceptSelf(cycleRoot.previous, namespace);
 						}
 					},
 				});

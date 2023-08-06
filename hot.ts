@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/method-signature-style */
-type Data = Record<keyof any, any>;
+type Data = Record<keyof any, unknown>;
 type ModuleNamespace = Record<string, unknown>;
 export interface Hot {
 	readonly data?: Data | undefined;
