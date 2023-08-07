@@ -4,7 +4,7 @@ import type { ModuleController, ModuleExports, ModuleNamespace } from "./module.
 /** @internal */
 export interface ModuleDeclaration {
 	readonly body: ModuleBody;
-	readonly meta: ImportMeta;
+	readonly meta: ImportMeta | null;
 	readonly importAssertions: Record<string, string>;
 	readonly usesDynamicImport: boolean;
 	readonly indirectExportEntries: ReadonlyMap<string, {
@@ -25,13 +25,13 @@ type DynamicImport = (specifier: string, importAssertions?: Record<string, strin
 
 interface ModuleBodySync {
 	async: false;
-	execute: (meta: ImportMeta, dynamicImport: DynamicImport) => Generator<ModuleBodyScope, void, ModuleExports>;
+	execute: (meta: ImportMeta | null, dynamicImport: DynamicImport) => Generator<ModuleBodyScope, void, ModuleExports>;
 }
 
 interface ModuleBodyAsync {
 	async: true;
 	execute: (
-		meta: ImportMeta,
+		meta: ImportMeta | null,
 		dynamicImport: DynamicImport,
 		accepts: (scope: ModuleBodyScope) => void,
 	) => AsyncGenerator<ModuleBodyScope, void, ModuleExports>;

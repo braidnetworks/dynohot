@@ -82,7 +82,9 @@ export class TestModule {
 
 	private instantiate(environment: Environment) {
 		if (this.vm === undefined) {
-			const source = transformModuleSource(this.url, {}, this.source(), undefined);
+			const source =
+				transformModuleSource(this.url, {}, this.source(), undefined) +
+				`export default function module() { return acquire(${JSON.stringify(this.url)}); }\n`;
 			this.vm = new SourceTextModule(source, {
 				context: environment.context,
 				identifier: this.url,

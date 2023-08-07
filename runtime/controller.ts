@@ -102,7 +102,7 @@ function logUpdate(update: UpdateResult) {
 	const plural = (word: string, count: number) => `${word}${count === 1 ? "" : "s"}`;
 	switch (update.type) {
 		case UpdateStatus.declined:
-			console.error(`[hot] A pending update was explicitly declined:\n${update.declined.map(module => `- ${module.location}`).join("\n")}`);
+			console.error(`[hot] A pending update was explicitly declined:\n${update.declined.map(module => `- ${module.url}`).join("\n")}`);
 			break;
 
 		case UpdateStatus.evaluationFailure: {
@@ -141,10 +141,6 @@ function logUpdate(update: UpdateResult) {
 
 /** @internal */
 export class ReloadableModuleController implements AbstractModuleController {
-	/** This is the physical location of the module, as seen by the loader chain */
-	readonly location;
-	/** This is the resolutionURL as specified by the loader chain, seen by `import.meta.url` */
-	readonly url;
 	readonly reloadable = true;
 
 	private current: ReloadableModuleInstance | undefined;
@@ -158,21 +154,16 @@ export class ReloadableModuleController implements AbstractModuleController {
 
 	constructor(
 		public readonly application: Application,
-		public readonly bodyURL: string,
+		public readonly url: string,
 	) {
-		const parsedURL = new URL(bodyURL);
-		this.location = parsedURL.searchParams.get("hot") ?? bodyURL;
-		parsedURL.searchParams.delete("hot");
-		this.url = String(parsedURL);
-
 		const watcher = new FileWatcher();
-		watcher.watch(this.location, () => {
+		watcher.watch(this.url, () => {
 			void (async () => {
 				const instance = this.staging ?? this.current;
 				assert(instance !== undefined);
 				const { importAssertions } = instance.declaration;
 				const params = new URLSearchParams([
-					[ "url", this.location ],
+					[ "url", this.url ],
 					[ "version", String(++this.version) ],
 					...Fn.map(
 						Object.entries(importAssertions),
@@ -256,7 +247,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 	// Invoked from transformed module source
 	load(
 		body: ModuleBody,
-		meta: ImportMeta,
+		meta: ImportMeta | null,
 		usesDynamicImport: boolean,
 		importAssertions: Record<string, string>,
 		loadedModules: readonly LoadedModuleRequestEntry[],
@@ -265,7 +256,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 			// Experimental module eviction
 			if (this.version !== 0) {
 				const backingModuleParams = new URLSearchParams([
-					[ "url", this.bodyURL ],
+					[ "url", this.url ],
 					[ "version", String(this.version) ],
 					...Object.entries(importAssertions).map(
 						([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),

@@ -78,24 +78,31 @@ export class Hot {
 	}
 
 	static {
-		didDynamicImport = (instance, controller) => selectHot(instance).#dynamicImports.add(controller);
+		didDynamicImport = (instance, controller) => {
+			const hot = selectHot(instance);
+			if (hot !== null) {
+				hot.#dynamicImports.add(controller);
+			}
+		};
 		dispose = async instance => {
 			const data = {};
 			const hot = selectHot(instance);
-			for (const callback of Fn.reverse(hot.#dispose)) {
-				await callback(data);
+			if (hot !== null) {
+				for (const callback of Fn.reverse(hot.#dispose)) {
+					await callback(data);
+				}
 			}
 			return data;
 		};
 		isAccepted = (instance, modules) => {
 			const hot = selectHot(instance);
-			if (hot.#invalidated) {
+			if (hot !== null && hot.#invalidated) {
 				return false;
 			} else {
-				const imports = new Set(hot.#instance.iterateDependencies());
-				const acceptedModules = new Set(Fn.transform(hot.#accepts, accepts => {
+				const imports = new Set(instance.iterateDependencies());
+				const acceptedModules = new Set(Fn.transform(hot === null ? [] : hot.#accepts, accepts => {
 					const acceptedModules = accepts.localEntries.map(entry =>
-						entry.found ? entry.module : hot.#instance.lookupSpecifier(entry.specifier));
+						entry.found ? entry.module : instance.lookupSpecifier(entry.specifier));
 					if (acceptedModules.every(module => module != null)) {
 						return acceptedModules as ReloadableModuleController[];
 					} else {
@@ -107,25 +114,33 @@ export class Hot {
 		};
 		isAcceptedSelf = instance => {
 			const hot = selectHot(instance);
-			return hot.#acceptsSelf.length > 0;
+			return hot !== null && hot.#acceptsSelf.length > 0;
 		};
-		isDeclined = instance => selectHot(instance).#declined;
-		isInvalidated = instance => selectHot(instance).#invalidated;
+		isDeclined = instance => {
+			const hot = selectHot(instance);
+			return hot !== null && hot.#declined;
+		};
+		isInvalidated = instance => {
+			const hot = selectHot(instance);
+			return hot !== null && hot.#invalidated;
+		};
 		prune = async instance => {
 			const hot = selectHot(instance);
-			for (const callback of Fn.reverse(hot.#prune)) {
-				await callback();
+			if (hot !== null) {
+				for (const callback of Fn.reverse(hot.#prune)) {
+					await callback();
+				}
 			}
 		};
 		tryAccept = async (instance, modules) => {
 			const hot = selectHot(instance);
-			if (hot.#invalidated as boolean) {
+			if (hot !== null && hot.#invalidated) {
 				return false;
 			} else {
-				const imports = new Set(hot.#instance.iterateDependencies());
-				const acceptedHandlers = Array.from(Fn.filter(Fn.map(hot.#accepts, accepts => {
+				const imports = new Set(instance.iterateDependencies());
+				const acceptedHandlers = Array.from(Fn.filter(Fn.map(hot === null ? [] : hot.#accepts, accepts => {
 					const acceptedModules = accepts.localEntries.map(entry =>
-						entry.found ? entry.module : hot.#instance.lookupSpecifier(entry.specifier));
+						entry.found ? entry.module : instance.lookupSpecifier(entry.specifier));
 					if (acceptedModules.every(module => module != null)) {
 						return {
 							callback: accepts.callback,
@@ -141,7 +156,7 @@ export class Hot {
 					if (handler.callback && modules.some(module => handler.modules.includes(module))) {
 						const namespaces = handler.modules.map(module => module.select().moduleNamespace()());
 						await handler.callback(namespaces);
-						if (hot.#invalidated) {
+						if (hot !== null && hot.#invalidated) {
 							return false;
 						}
 					}
@@ -151,7 +166,7 @@ export class Hot {
 		};
 		tryAcceptSelf = async (instance, self) => {
 			const hot = selectHot(instance);
-			if (hot.#acceptsSelf.length === 0) {
+			if (hot === null || hot.#acceptsSelf.length === 0) {
 				return false;
 			} else {
 				for (const callback of hot.#acceptsSelf) {

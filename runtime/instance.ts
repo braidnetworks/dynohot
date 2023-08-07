@@ -57,7 +57,7 @@ interface ModuleStateEvaluated {
 
 interface ModuleEnvironment {
 	readonly exports: ModuleExports;
-	readonly hot: Hot;
+	readonly hot: Hot | null;
 	readonly replace: (this: void, imports: ModuleExports) => void;
 }
 
@@ -98,12 +98,18 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 
 	instantiate(data?: Data) {
 		if (this.state.status === ModuleStatus.new) {
-			const hot = new Hot(this.controller, this, this.declaration.usesDynamicImport, data);
-			const importMeta = Object.assign(Object.create(this.declaration.meta), {
-				dynoHot: hot,
-				hot,
-				url: this.controller.url,
-			});
+			const { hot, importMeta } = (() => {
+				if (this.declaration.meta === null) {
+					return { hot: null, importMeta: null };
+				} else {
+					const hot = new Hot(this.controller, this, this.declaration.usesDynamicImport, data);
+					const importMeta = Object.assign(Object.create(this.declaration.meta) as ImportMeta, {
+						dynoHot: hot,
+						hot,
+					});
+					return { hot, importMeta };
+				}
+			})();
 			const dynamicImport = this.dynamicImport.bind(this);
 			if (this.declaration.body.async) {
 				let scope: ModuleBodyScope | undefined;
@@ -319,7 +325,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			this.state.status === ModuleStatus.evaluatingAsync ||
 			this.state.status === ModuleStatus.evaluated);
 		const specifierParams = new URLSearchParams([
-			[ "parent", this.controller.location ],
+			[ "parent", this.controller.url ],
 			[ "specifier", specifier ],
 			...Fn.map(
 				Object.entries(importAssertions ?? {}),

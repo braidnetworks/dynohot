@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { parse, types as t } from "@babel/core";
 // @ts-expect-error
 import syntaxImportAttributes from "@babel/plugin-syntax-import-attributes";
-// @ts-expect-error
 import convertSourceMap from "convert-source-map";
 import Fn from "dynohot/functional";
 import { generate, makeRootPath, traverse } from "./babel-shim.js";
@@ -55,7 +54,7 @@ export function transformModuleSource(
 		inputSourceMap: sourceMap,
 	});
 	const sourceMapComment = result.map ? convertSourceMap.fromObject(result.map).toComment() : "";
-	return `${result.code}\n${sourceMapComment}`;
+	return `${result.code}\n${sourceMapComment}\n`;
 }
 
 function transformProgram(
@@ -301,6 +300,7 @@ function transformProgram(
 		importMetaName,
 		program,
 		usesDynamicImport: false,
+		usesImportMeta: false,
 		usesTopLevelAwait: false,
 	};
 	traverse(program.node, importToGetterVisitor, program.scope, visitorState);
@@ -344,16 +344,6 @@ function transformProgram(
 			]),
 			true,
 			visitorState.usesTopLevelAwait),
-		t.exportDefaultDeclaration(t.functionDeclaration(t.identifier("module"), [], t.blockStatement([
-			t.returnStatement(t.callExpression(
-				t.identifier("acquire"),
-				[
-					t.memberExpression(
-						t.metaProperty(t.identifier("import"), t.identifier("meta")),
-						t.identifier("url")),
-				],
-			)),
-		]))),
 		t.expressionStatement(t.callExpression(
 			t.memberExpression(
 				t.callExpression(t.identifier("module"), []),
@@ -363,7 +353,13 @@ function transformProgram(
 					t.objectProperty(t.identifier("async"), t.booleanLiteral(visitorState.usesTopLevelAwait)),
 					t.objectProperty(t.identifier("execute"), t.identifier("execute")),
 				]),
-				t.metaProperty(t.identifier("import"), t.identifier("meta")),
+				// nb: We omit `import.meta` in the case the module doesn't use it at all. No
+				// telling if this is actually important to the runtime environment but it seemed
+				// important enough to make it into the compartments proposal:
+				// https://github.com/tc39/proposal-compartments/blob/7e60fdbce66ef2d97370007afeb807192c653333/1-static-analysis.md#design-rationales
+				visitorState.usesImportMeta
+					? t.metaProperty(t.identifier("import"), t.identifier("meta"))
+					: t.nullLiteral(),
 				t.booleanLiteral(visitorState.usesDynamicImport),
 				t.objectExpression(Object.entries(importAssertions).map(
 					([ key, value ]) => t.objectProperty(t.identifier(key), t.stringLiteral(value)))),
@@ -380,6 +376,7 @@ interface VisitorState {
 	readonly importMetaName: string;
 	readonly program: NodePath<t.Program>;
 	usesDynamicImport: boolean;
+	usesImportMeta: boolean;
 	usesTopLevelAwait: boolean;
 }
 
@@ -409,6 +406,7 @@ const importToGetterVisitor: Visitor<VisitorState> = {
 	MetaProperty(path) {
 		if (path.node.meta.name === "import" && path.node.property.name === "meta") {
 			path.replaceWith(t.identifier(this.importMetaName));
+			this.usesImportMeta = true;
 		}
 	},
 

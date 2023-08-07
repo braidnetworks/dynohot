@@ -2,7 +2,6 @@ import type { NodeLoad, NodeResolve } from "./node-loader.js";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import fs from "node:fs/promises";
-// @ts-expect-error
 import convertSourceMap from "convert-source-map";
 import Fn from "dynohot/functional";
 import { transformModuleSource } from "./transform.js";
@@ -183,29 +182,31 @@ export const load: NodeLoad = (urlString, context, nextLoad) => {
 						: Buffer.from(result.source).toString("utf8");
 					const sourceMap = await async function() {
 						try {
+							const map = convertSourceMap.fromComment(sourceText);
+							return map.toObject();
+						} catch {}
+						try {
 							const map = await convertSourceMap.fromMapFileSource(
 								sourceText,
 								(fileName: string) => fs.readFile(new URL(fileName, moduleURL), "utf8"));
 							return map?.toObject();
 						} catch {}
 					}();
-					transformModuleSource(moduleURL, importAssertions, sourceText, sourceMap);
+					const transformedSource = transformModuleSource(moduleURL, importAssertions, sourceText, sourceMap);
 					// Loaders earlier in the chain are allowed to overwrite `responseURL`, which is
-					// fine, but we need to notate this in the runtime. We will use `moduleURL` as
-					// the watch target, and the parameter also serves disambiguate the module URL
-					// from the response URL. This is a little annoying because we will see the
-					// `?hot=` in stack traces.
-					const responseURL = function() {
-						if (result.responseURL === undefined || result.responseURL === moduleURL) {
-							return moduleURL;
-						} else {
-							return `${result.responseURL}${result.responseURL.includes("?") ? "&" : "?"}hot=${encodeURIComponent(moduleURL)}`;
-						}
-					}();
+					// fine, but we need to notate this in the runtime. `responseURL` can be
+					// anything, doesn't have to be unique, and is observable via `import.meta.url`
+					// and stack traces [unless there is a source map]. On the other hand,
+					// `moduleURL` uniquely identifies an instance of a module, and is used as the
+					// `parentURL` in the resolve callback. We will "burn in" `moduleURL` into the
+					// transformed source as a post-transformation process.
+					const sourceWithModuleURL =
+						transformedSource +
+						`export default function module() { return acquire(${JSON.stringify(moduleURL)}); }\n`;
 					return {
 						...result,
-						responseURL,
-						source: transformModuleSource(moduleURL, importAssertions, sourceText, sourceMap),
+						responseURL: result.responseURL,
+						source: sourceWithModuleURL,
 					};
 				} else {
 					return {
