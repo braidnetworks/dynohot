@@ -1,6 +1,6 @@
 import type { ModuleBodyScope, ModuleDeclaration } from "./declaration.js";
+import type { Data } from "./hot.js";
 import type { AbstractModuleInstance, ModuleController, ModuleExports, Resolution, SelectModuleInstance } from "./module.js";
-import type { TraverseCyclicState } from "./traverse.js";
 import type { WithResolvers } from "./utility.js";
 import assert from "node:assert/strict";
 import Fn from "dynohot/functional";
@@ -79,15 +79,12 @@ interface ModuleContinuationAsync {
 /** @internal */
 export class ReloadableModuleInstance implements AbstractModuleInstance {
 	readonly reloadable = true;
-
+	state: ModuleState = { status: ModuleStatus.new };
 	dynamicImports: {
 		readonly controller: ReloadableModuleController;
 		readonly specifier: string;
 	}[] = [];
 
-	state: ModuleState = { status: ModuleStatus.new };
-	traversalState: TraverseCyclicState | undefined;
-	visitation = 0;
 	private namespace: (() => Record<string, unknown>) | undefined;
 
 	constructor(
@@ -99,9 +96,9 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		return new ReloadableModuleInstance(this.controller, this.declaration);
 	}
 
-	instantiate(data?: unknown) {
+	instantiate(data?: Data) {
 		if (this.state.status === ModuleStatus.new) {
-			const hot = new Hot(this.controller, this.declaration.usesDynamicImport, data);
+			const hot = new Hot(this.controller, this, this.declaration.usesDynamicImport, data);
 			const importMeta = Object.assign(Object.create(this.declaration.meta), {
 				dynoHot: hot,
 				hot,
@@ -134,7 +131,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		}
 	}
 
-	link(select: SelectModuleInstance) {
+	link(select?: SelectModuleInstance) {
 		assert(this.state.status !== ModuleStatus.new);
 		if (this.state.status === ModuleStatus.linking) {
 			const bindings = initializeEnvironment(
@@ -166,6 +163,57 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 				completion: withResolvers<void>(),
 			};
 			this.state.completion.promise.catch(() => {});
+		}
+	}
+
+	relink(select?: SelectModuleInstance) {
+		assert(
+			this.state.status === ModuleStatus.linked ||
+			this.state.status === ModuleStatus.evaluated ||
+			this.state.status === ModuleStatus.evaluatingAsync);
+		const bindings = initializeEnvironment(
+			this.declaration.loadedModules,
+			entry => {
+				const module = entry.controller().select(select);
+				assert(
+					module.state.status === ModuleStatus.evaluated ||
+					module.state.status === ModuleStatus.evaluatingAsync);
+				return module.moduleNamespace(select);
+			},
+			(entry, exportName) => {
+				const module = entry.controller().select(select);
+				assert(
+					module.state.status === ModuleStatus.linked ||
+					module.state.status === ModuleStatus.evaluated ||
+					module.state.status === ModuleStatus.evaluatingAsync);
+				return module.resolveExport(exportName, select);
+			});
+		if (this.state.status !== ModuleStatus.linked) {
+			this.state.environment.replace(Object.fromEntries(bindings));
+		}
+	}
+
+	/**
+	 * Reset a module instance from "linked" or "linking" to "new". Returns `true` if the module is
+	 * now in "new" state, false otherwise.
+	 */
+	unlink() {
+		switch (this.state.status) {
+			case ModuleStatus.new: return true;
+
+			case ModuleStatus.linked:
+			case ModuleStatus.linking: {
+				const continuation = this.state.continuation;
+				if (continuation.async) {
+					void continuation.iterator.return?.();
+				} else {
+					continuation.iterator.return?.();
+				}
+				this.state = { status: ModuleStatus.new };
+				return true;
+			}
+
+			default: return false;
 		}
 	}
 
@@ -247,32 +295,22 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		}
 	}
 
-	relink(cycleNodes: readonly ReloadableModuleController[], select: SelectModuleInstance) {
-		const nodes = [ ...Fn.map(cycleNodes, node => node.select(select)), this ];
-		for (const node of nodes) {
-			assert(node.state.status === ModuleStatus.evaluated);
-			node.namespace = undefined;
+	lookupSpecifier(specifier: string) {
+		const entry = this.declaration.loadedModules.find(entry => entry.specifier === specifier);
+		if (entry === undefined) {
+			const dynamicImport = this.dynamicImports.find(entry => entry.specifier === specifier);
+			return dynamicImport?.controller;
+		} else {
+			const controller = entry.controller();
+			if (controller.reloadable) {
+				return controller;
+			}
 		}
-		for (const node of nodes) {
-			assert(node.state.status === ModuleStatus.evaluated);
-			const bindings = initializeEnvironment(
-				node.declaration.loadedModules,
-				entry => {
-					const module = entry.controller().select(select);
-					assert(
-						module.state.status === ModuleStatus.evaluated ||
-						module.state.status === ModuleStatus.evaluatingAsync);
-					return module.moduleNamespace(select);
-				},
-				(entry, exportName) => {
-					const module = entry.controller().select(select);
-					assert(
-						module.state.status === ModuleStatus.evaluated ||
-						module.state.status === ModuleStatus.evaluatingAsync);
-					return module.resolveExport(exportName, select);
-				});
-			node.state.environment.replace(Object.fromEntries(bindings));
-		}
+	}
+
+	*iterateDependencies() {
+		yield* Fn.map(this.declaration.loadedModules, entry => entry.controller());
+		yield* Fn.map(this.dynamicImports, instance => instance.controller);
 	}
 
 	private async dynamicImport(specifier: string, importAssertions?: Record<string, string>) {
@@ -299,28 +337,10 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		}
 	}
 
-	destroy() {
-		switch (this.state.status) {
-			case ModuleStatus.linked:
-			case ModuleStatus.linking: {
-				const continuation = this.state.continuation;
-				if (continuation.async) {
-					void continuation.iterator.return?.();
-				} else {
-					continuation.iterator.return?.();
-				}
-				break;
-			}
-
-			default:
-		}
-		this.state = { status: ModuleStatus.new };
-	}
-
 	// 10.4.6.12 ModuleNamespaceCreate ( module, exports )
 	// 16.2.1.6.2 GetExportedNames ( [ exportStarSet ] )
 	// 16.2.1.10 GetModuleNamespace ( module )
-	moduleNamespace(select = ReloadableModuleController.selectCurrent) {
+	moduleNamespace(select?: SelectModuleInstance) {
 		if (!this.namespace) {
 			assert(this.state.status !== ModuleStatus.new);
 			const namespace = Object.create(null);
@@ -379,7 +399,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 	}
 
 	// 16.2.1.6.3 ResolveExport ( exportName [ , resolveSet ] )
-	resolveExport(exportName: string, select: SelectModuleInstance): Resolution {
+	resolveExport(exportName: string, select?: SelectModuleInstance): Resolution {
 		// 1. Assert: module.[[Status]] is not new.
 		assert(this.state.status !== ModuleStatus.new);
 		// 2. If resolveSet is not present, set resolveSet to a new empty List.

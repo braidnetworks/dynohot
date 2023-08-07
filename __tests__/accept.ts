@@ -19,3 +19,17 @@ test("accept handlers should run top down", async () => {
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
 });
+
+test("should be able to accept a cycle root", async () => {
+	const main = new TestModule(() =>
+		`import {} from ${left};
+		import.meta.hot.accept(${left});`);
+	const left: TestModule = new TestModule(() =>
+		`import {} from ${right};`);
+	const right = new TestModule(() =>
+		`import {} from ${left};`);
+	await main.dispatch();
+	await right.update(() => "");
+	const result = await main.releaseUpdate();
+	expect(result?.type).toBe(UpdateStatus.success);
+});

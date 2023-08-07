@@ -85,6 +85,28 @@ export function discriminatedTypePredicate<Type extends { type: unknown }, Check
 	return (node: Type): node is Check => node.type === type;
 }
 
+/**
+ * Returns a delegate iterable to an array which invokes a rollback function on the iterated
+ * elements if iteration didn't complete [due to an exception hopefully].
+ * @internal
+ */
+export function *iterateWithRollback<Type>(vector: readonly Type[], rollback: (previous: Iterable<Type>) => void) {
+	let ii = 0;
+	try {
+		for (; ii < vector.length; ++ii) {
+			yield vector[ii]!;
+		}
+	} finally {
+		if (ii !== vector.length) {
+			rollback(function*() {
+				for (let jj = ii; jj >= 0; --jj) {
+					yield vector[jj]!;
+				}
+			}());
+		}
+	}
+}
+
 /** @internal */
 export interface WithResolvers<Type> {
 	readonly promise: Promise<Type>;

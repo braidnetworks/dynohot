@@ -29,8 +29,10 @@ export let tryAccept: (instance: ReloadableModuleInstance, modules: readonly Rel
 /** @internal */
 export let tryAcceptSelf: (instance: ReloadableModuleInstance, self: () => ModuleNamespace) => Promise<boolean>;
 
+/** @internal */
+export type Data = Record<keyof any, unknown>;
+
 // Duplicated here to make copying the .d.ts file easier
-type Data = Record<keyof any, unknown>;
 type ModuleNamespace = Record<string, unknown>;
 
 type LocalModuleEntry = {
@@ -57,6 +59,7 @@ export class Hot {
 	#declined = false;
 	#dispose: ((data: Data) => Promise<void> | void)[] = [];
 	#dynamicImports = new Set<ModuleController>();
+	#instance: ReloadableModuleInstance;
 	#invalidated = false;
 	#module;
 	#prune: (() => Promise<void> | void)[] = [];
@@ -64,10 +67,12 @@ export class Hot {
 
 	constructor(
 		module: unknown,
+		instance: unknown,
 		usesDynamicImport: boolean,
 		public readonly data?: unknown,
 	) {
 		this.#module = module as ReloadableModuleController;
+		this.#instance = instance as ReloadableModuleInstance;
 		this.#usesDynamicImport = usesDynamicImport;
 		Object.freeze(this);
 	}
@@ -87,16 +92,17 @@ export class Hot {
 			if (hot.#invalidated) {
 				return false;
 			} else {
+				const imports = new Set(hot.#instance.iterateDependencies());
 				const acceptedModules = new Set(Fn.transform(hot.#accepts, accepts => {
 					const acceptedModules = accepts.localEntries.map(entry =>
-						entry.found ? entry.module : hot.#module.lookupSpecifier(hot, entry.specifier));
+						entry.found ? entry.module : hot.#instance.lookupSpecifier(entry.specifier));
 					if (acceptedModules.every(module => module != null)) {
 						return acceptedModules as ReloadableModuleController[];
 					} else {
 						return [];
 					}
 				}));
-				return modules.every(module => acceptedModules.has(module));
+				return modules.every(module => !imports.has(module) || acceptedModules.has(module));
 			}
 		};
 		isAcceptedSelf = instance => {
@@ -116,9 +122,10 @@ export class Hot {
 			if (hot.#invalidated as boolean) {
 				return false;
 			} else {
+				const imports = new Set(hot.#instance.iterateDependencies());
 				const acceptedHandlers = Array.from(Fn.filter(Fn.map(hot.#accepts, accepts => {
 					const acceptedModules = accepts.localEntries.map(entry =>
-						entry.found ? entry.module : hot.#module.lookupSpecifier(hot, entry.specifier));
+						entry.found ? entry.module : hot.#instance.lookupSpecifier(entry.specifier));
 					if (acceptedModules.every(module => module != null)) {
 						return {
 							callback: accepts.callback,
@@ -127,14 +134,15 @@ export class Hot {
 					}
 				})));
 				const acceptedModules = new Set(Fn.transform(acceptedHandlers, handler => handler.modules));
-				if (modules.every(module => acceptedModules.has(module))) {
-					for (const handler of acceptedHandlers) {
-						if (handler.callback && modules.some(module => handler.modules.includes(module))) {
-							const namespaces = handler.modules.map(module => module.select().moduleNamespace()());
-							await handler.callback(namespaces);
-							if (hot.#invalidated) {
-								return false;
-							}
+				if (!modules.every(module => !imports.has(module) || acceptedModules.has(module))) {
+					return false;
+				}
+				for (const handler of acceptedHandlers) {
+					if (handler.callback && modules.some(module => handler.modules.includes(module))) {
+						const namespaces = handler.modules.map(module => module.select().moduleNamespace()());
+						await handler.callback(namespaces);
+						if (hot.#invalidated) {
+							return false;
 						}
 					}
 				}
@@ -185,7 +193,7 @@ export class Hot {
 			});
 		} else if (Array.isArray(arg1)) {
 			const localEntries: LocalModuleEntry[] = arg1.map(specifier => {
-				const module = this.#module.lookupSpecifier(this, specifier);
+				const module = this.#instance.lookupSpecifier(specifier);
 				if (module == null) {
 					return { found: false, module, specifier };
 				} else {

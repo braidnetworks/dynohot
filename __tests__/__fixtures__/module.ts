@@ -63,10 +63,12 @@ export class TestModule {
 		return controller.application.requestUpdateResult();
 	}
 
-	async update(source: () => string) {
+	async update(source?: () => string) {
 		assert(this.environment !== undefined);
 		assert(this.vm !== undefined);
-		this.source = source;
+		if (source) {
+			this.source = source;
+		}
 		this.vm = undefined;
 		const vm = this.instantiate(this.environment);
 		vm.evaluated = true;

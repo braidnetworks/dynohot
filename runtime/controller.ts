@@ -1,16 +1,14 @@
 import type { LoadedModuleRequestEntry, ModuleBody, ModuleDeclaration } from "./declaration.js";
-import type { Hot } from "./hot.js";
 import type { BindingEntry, ExportIndirectEntry, ExportIndirectStarEntry, ExportStarEntry } from "./module/binding.js";
-import type{ AbstractModuleController, ModuleNamespace, SelectModuleInstance } from "./module.js";
-import type { TraverseCyclicState } from "./traverse.js";
+import type{ AbstractModuleController, ModuleNamespace } from "./module.js";
 import assert from "node:assert/strict";
 import Fn from "dynohot/functional";
 import { dispose, isAccepted, isAcceptedSelf, isDeclined, isInvalidated, prune, tryAccept, tryAcceptSelf } from "./hot.js";
 import { ReloadableModuleInstance } from "./instance.js";
 import { BindingType } from "./module/binding.js";
 import { ModuleStatus } from "./module.js";
-import { traverseBreadthFirst, traverseDepthFirst } from "./traverse.js";
-import { debounceAsync, debounceTimer, discriminatedTypePredicate, evictModule } from "./utility.js";
+import { makeTraversalState, traverseBreadthFirst, traverseDepthFirst } from "./traverse.js";
+import { debounceAsync, debounceTimer, discriminatedTypePredicate, evictModule, iterateWithRollback } from "./utility.js";
 import { FileWatcher } from "./watcher.js";
 
 /** @internal */
@@ -141,63 +139,22 @@ function logUpdate(update: UpdateResult) {
 	}
 }
 
-function iterateReloadables(select: SelectModuleInstance) {
-	return function*(controller: ReloadableModuleController) {
-		for (const child of controller.select(select).declaration.loadedModules) {
-			const instance = child.controller();
-			if (instance.reloadable) {
-				yield instance;
-			}
-		}
-	};
-}
-
-function iterateReloadablesWithDynamics(select: SelectModuleInstance) {
-	return function*(controller: ReloadableModuleController) {
-		const instance = controller.select(select);
-		for (const entry of instance.declaration.loadedModules) {
-			const controller = entry.controller();
-			if (controller.reloadable) {
-				yield controller;
-			}
-		}
-		yield* Fn.map(instance.dynamicImports, entry => entry.controller);
-	};
-}
-
-function iterateReloadableInstances(select: SelectModuleInstance) {
-	return function*(instance: ReloadableModuleInstance) {
-		for (const child of instance.declaration.loadedModules) {
-			const instance = child.controller();
-			if (instance.reloadable) {
-				yield instance.select(select);
-			}
-		}
-	};
-}
-
 /** @internal */
 export class ReloadableModuleController implements AbstractModuleController {
-	private wasSelfAccepted: boolean | undefined;
-	private current: ReloadableModuleInstance | undefined;
-	private pending: ReloadableModuleInstance | undefined;
-	private previous: ReloadableModuleInstance | undefined;
-	private staging: ReloadableModuleInstance | undefined;
-	private temporary: ReloadableModuleInstance | undefined;
-	private version = 0;
 	/** This is the physical location of the module, as seen by the loader chain */
 	readonly location;
 	/** This is the resolutionURL as specified by the loader chain, seen by `import.meta.url` */
 	readonly url;
 	readonly reloadable = true;
-	traversalState: TraverseCyclicState | undefined;
-	visitation = 0;
 
-	static selectCurrent = (controller: ReloadableModuleController) => controller.current;
-
-	private static readonly iterateCurrent = iterateReloadables(controller => controller.current);
-	private static readonly iteratePending = iterateReloadables(controller => controller.pending);
-	private static readonly iterateTemporary = iterateReloadables(controller => controller.temporary);
+	private current: ReloadableModuleInstance | undefined;
+	private pending: ReloadableModuleInstance | undefined;
+	private previous: ReloadableModuleInstance | undefined;
+	private staging: ReloadableModuleInstance | undefined;
+	private temporary: ReloadableModuleInstance | undefined;
+	private traversal = makeTraversalState();
+	private visitIndex = 0;
+	private version = 0;
 
 	constructor(
 		public readonly application: Application,
@@ -241,33 +198,58 @@ export class ReloadableModuleController implements AbstractModuleController {
 	}
 
 	async dispatch(this: ReloadableModuleController) {
-		if (this.current as ReloadableModuleInstance | undefined === undefined) {
-			// Promote `staging` to `current`, and instantiate all reloadable modules.
-			traverseBreadthFirst(
+		if (this.current === undefined) {
+			// Place `current` from `staging` if it's not set up, instantiate all reloadable
+			// modules, and perform link.
+			traverseDepthFirst(
 				this,
-				iterateReloadables(controller => controller.current ?? controller.staging),
-				controller => {
-					if (controller.current === undefined) {
-						const { staging } = controller;
-						assert(staging !== undefined);
-						controller.current = staging;
-						controller.staging = undefined;
+				node => node.traversal,
+				(node, traversal) => {
+					node.traversal = traversal;
+					if (node.current === undefined) {
+						const staging = node.select(controller => controller.staging);
+						node.current = staging;
+						node.current.instantiate();
 					}
-					controller.current.instantiate();
+					return node.iterate();
+				},
+				(nodes): undefined => {
+					const withRollback = iterateWithRollback(nodes, nodes => {
+						for (const node of nodes) {
+							if (node.select().unlink()) {
+								node.current = undefined;
+							}
+						}
+					});
+					for (const node of withRollback) {
+						node.select().link();
+					}
+				},
+				pendingNodes => {
+					for (const node of pendingNodes) {
+						if (node.select().unlink()) {
+							node.current = undefined;
+						}
+					}
 				});
 
-			// Perform initial linkage
-			assert(this.current !== undefined);
-			traverseDepthFirst(
-				this.current,
-				iterateReloadableInstances(ReloadableModuleController.selectCurrent),
-				node => node.link(ReloadableModuleController.selectCurrent));
-
-			// Perform initial evaluation
+			// Evaluate
 			await traverseDepthFirst(
-				this.current,
-				iterateReloadableInstances(ReloadableModuleController.selectCurrent),
-				node => node.evaluate());
+				this,
+				node => node.traversal,
+				(node, traversal) => {
+					node.traversal = traversal;
+					return node.iterate();
+				},
+				async nodes => {
+					for (const node of nodes) {
+						const current = node.select();
+						if (current === node.staging) {
+							node.staging = undefined;
+						}
+						await current.evaluate();
+					}
+				});
 		}
 	}
 
@@ -323,49 +305,33 @@ export class ReloadableModuleController implements AbstractModuleController {
 		this.staging = new ReloadableModuleInstance(this, declaration);
 	}
 
-	lookupSpecifier(hot: Hot, specifier: string) {
-		const select = ((): SelectModuleInstance | undefined => {
-			const check = (select: SelectModuleInstance) => {
-				const instance = select(this);
-				if (instance !== undefined) {
-					if (
-						instance.state.status !== ModuleStatus.new &&
-						instance.state.environment.hot === hot
-					) {
-						return select;
-					}
-				}
-			};
-			return check(ReloadableModuleController.selectCurrent) ?? check(controller => controller.pending);
-		})();
-		if (select !== undefined) {
-			const instance = this.select(select);
-			const controller = function() {
-				const entry = instance.declaration.loadedModules.find(entry => entry.specifier === specifier);
-				if (entry === undefined) {
-					const dynamicImport = instance.dynamicImports.find(entry => entry.specifier === specifier);
-					return dynamicImport?.controller;
-				} else {
-					return entry.controller();
-				}
-			}();
-			if (controller) {
-				if (controller.reloadable) {
-					return controller;
-				} else {
-					return null;
-				}
-			}
-		}
-	}
-
 	select(select = ReloadableModuleController.selectCurrent) {
 		const instance = select(this);
 		assert(instance);
 		return instance;
 	}
 
-	private async requestUpdate(): Promise<UpdateResult> {
+	private *iterate(select = ReloadableModuleController.selectCurrent) {
+		for (const child of this.select(select).declaration.loadedModules) {
+			const controller = child.controller();
+			if (controller.reloadable) {
+				yield controller;
+			}
+		}
+	}
+
+	private *iterateWithDynamics(
+		select = ReloadableModuleController.selectCurrent,
+		selectDynamic = ReloadableModuleController.selectCurrent,
+	) {
+		yield* this.iterate(select);
+		const instance = this.select(selectDynamic);
+		yield* Fn.map(instance.dynamicImports, entry => entry.controller);
+	}
+
+	private async requestUpdate(this: ReloadableModuleController): Promise<UpdateResult> {
+
+		// Set up statistics tracking
 		let loads = 0;
 		let reevaluations = 0;
 		const timeStarted = performance.now();
@@ -375,332 +341,288 @@ export class ReloadableModuleController implements AbstractModuleController {
 			duration: performance.now() - timeStarted,
 		});
 
-		// Collect dynamic imports and set up initial `pending` and `previous` state. Dynamic
-		// imports are traversed first, then the primary graph is traversed.
-		const dynamicImports = new Set<ReloadableModuleController>();
+		// Dispatch "dry run" to see if it is possible to accept this update. Also mark `previous`
+		// and `pending`.
+		interface DryRunResult {
+			forwardResults: readonly DryRunResult[];
+			declined: readonly ReloadableModuleController[];
+			invalidated: readonly ReloadableModuleController[];
+			hasDecline: boolean;
+			hasNewCode: boolean;
+			needsDispatch: boolean;
+		}
 		const previousControllers: ReloadableModuleController[] = [];
-		traverseBreadthFirst(this, iterateReloadablesWithDynamics(controller => controller.current), node => {
-			// Update controller pending state
-			assert(node.current !== undefined);
-			assert.equal(node.pending, undefined);
-			assert.equal(node.previous, undefined);
-			node.pending = node.staging ?? node.current;
-			node.previous = node.current;
-			// Memoize all traversed controllers
-			previousControllers.push(node);
-			// Add dynamic imports to the graph
-			for (const entry of node.current.dynamicImports) {
-				dynamicImports.add(entry.controller);
-			}
-		});
-
-		// Iterate dynamic imported roots in reverse order. This kind of works, but I don't think it
-		// is actually sound.
-		const dispatchRoots = new Set(Fn.reverse(Array.from(dynamicImports)));
-		dispatchRoots.add(this);
-
-		// Check for updates, that the updates are potentially accepted, and maybe clone `pending`
-		// for evaluation if we know a module isn't accepted.
-		let hasUpdate = false as boolean;
-		let hasUpdatedCode = false as boolean;
-		const declined: ReloadableModuleController[] = [];
-		for (const dispatchRoot of dispatchRoots) {
-			traverseDepthFirst(dispatchRoot, ReloadableModuleController.iteratePending, {
-				join(cycleRoot, cycleNodes) {
-					assert(cycleRoot.current !== undefined);
-					assert(cycleNodes.every(node => node.current !== undefined));
-					// If this node and all cycle nodes have no updated code then we will check if any
-					// dependencies were updated
-					const nodes = [ ...cycleNodes, cycleRoot ];
-					if (nodes.every(node => !isInvalidated(node.current!) && node.current === node.pending)) {
-						// First check if any dependency of any cycle node was updated
-						const hasUpdatedDependencies = Fn.some(Fn.transform(
-							nodes,
-							node => Fn.map(
-								iterateReloadablesWithDynamics(controller => controller.pending)(node),
-								dependency => dependency.current !== dependency.pending && !dependency.wasSelfAccepted)));
-						if (hasUpdatedDependencies) {
-							// Dependencies updated, check if they are accepted. Only non-cycle
-							// nodes are allowed to accept.
-							if (cycleNodes.length === 0) {
-								const updatedControllers = Array.from(Fn.filter(
-									iterateReloadablesWithDynamics(controller => controller.pending)(cycleRoot),
-									dependency => {
-										assert(dependency.current !== undefined);
-										return dependency.pending !== dependency.current && !dependency.wasSelfAccepted;
-									}));
-								if (isAccepted(cycleRoot.current, updatedControllers)) {
-									return;
-								}
-							}
-						} else {
-							// No updates
-							return;
-						}
+		const initialResult = traverseDepthFirst(
+			this,
+			node => node.traversal,
+			(node, traversal) => {
+				node.traversal = traversal;
+				return node.iterateWithDynamics();
+			},
+			(cycleNodes, forwardResults: readonly DryRunResult[]): DryRunResult => {
+				let needsDispatch = false;
+				let hasNewCode = false;
+				const forwardUpdates = Array.from(Fn.concat(Fn.map(forwardResults, result => result.invalidated)));
+				const invalidated = Array.from(Fn.filter(cycleNodes, node => {
+					previousControllers.push(node);
+					const current = node.select();
+					node.pending = current;
+					node.previous = current;
+					if (node.staging !== undefined) {
+						node.pending = node.staging;
+						hasNewCode = true;
 					}
-					// An update is definitely required
-					for (const node of nodes) {
-						if (isDeclined(node.current!)) {
-							declined.push(node);
-						} else {
-							hasUpdate = true;
-							if (node.current === node.pending) {
-								node.pending = node.pending!.clone();
-							} else {
-								hasUpdatedCode = true;
-							}
-						}
+					if (
+						node.staging !== undefined ||
+						isInvalidated(current) ||
+						!isAccepted(current, forwardUpdates)
+					) {
+						needsDispatch = true;
+						return !isAcceptedSelf(current);
 					}
-					if (cycleNodes.length === 0) {
-						cycleRoot.wasSelfAccepted = isAcceptedSelf(cycleRoot.current);
-					}
-				},
+				}));
+				const declined = Array.from(Fn.filter(invalidated, node => isDeclined(node.select())));
+				const hasDecline = declined.length > 0 || Fn.some(forwardResults, result => result.hasDecline);
+				needsDispatch ||= Fn.some(forwardResults, result => result.needsDispatch);
+				hasNewCode ||= Fn.some(forwardResults, result => result.hasNewCode);
+				return { forwardResults, declined, invalidated, hasDecline, hasNewCode, needsDispatch };
 			});
+
+		// Rollback routine which undoes the above traversal.
+		const rollback = () => {
+			for (const controller of previousControllers) {
+				controller.pending = undefined;
+				controller.previous = undefined;
+			}
+		};
+
+		// Check result
+		if (!initialResult.needsDispatch) {
+			rollback();
+			return undefined;
+		} else if (initialResult.hasDecline) {
+			rollback();
+			const declined = Array.from(function *traverse(result): Iterable<ReloadableModuleController> {
+				yield* result.declined;
+				yield* Fn.transform(result.forwardResults, traverse);
+			}(initialResult));
+			return { type: UpdateStatus.declined, declined };
+		} else if (initialResult.invalidated.length > 0) {
+			rollback();
+			return { type: UpdateStatus.unaccepted };
 		}
 
-		let rollBack = false;
-		try {
-			if (declined.length > 0) {
-				rollBack = true;
-				return { type: UpdateStatus.declined, declined };
-			} else if (this.current !== this.pending && !this.wasSelfAccepted) {
-				rollBack = true;
-				return { type: UpdateStatus.unaccepted };
-			} else if (!hasUpdate) {
-				rollBack = true;
-				return undefined;
-			}
-			// If the update contains new code then we need to make sure it will link. Normally the
-			// graph will link and then evaluate, but when dispatching a hot update a module is
-			// allowed to invalidate itself. So, we're not really sure which bindings will end up
-			// where. This step ensures that a linkage error doesn't cause the whole graph to throw
-			// an error.
-			if (hasUpdatedCode) {
-				for (const dispatchRoot of dispatchRoots) {
-					// Instantiate temporary module instances
-					const nodes: ReloadableModuleController[] = [];
-					traverseBreadthFirst(dispatchRoot, ReloadableModuleController.iteratePending, node => {
-						assert.equal(node.temporary, undefined);
-						nodes.push(node);
-						node.temporary = node.select(controller => controller.pending).clone();
-						node.temporary.instantiate();
-					});
-					try {
-						// Attempt to link
-						traverseDepthFirst(dispatchRoot, ReloadableModuleController.iterateTemporary, node => {
-							assert(node.temporary !== undefined);
-							node.temporary.link(controller => controller.temporary);
-						});
-					} finally {
-						// Cleanup temporary instances
-						for (const node of nodes) {
-							const { temporary } = node;
-							node.temporary = undefined;
-							temporary?.destroy();
-						}
-					}
-				}
-			}
-
-		} catch (error: any) {
-			rollBack = true;
-			return { type: UpdateStatus.linkError, error };
-
-		} finally {
-			if (rollBack) {
-				for (const controller of previousControllers) {
-					assert(controller.pending !== undefined);
-					if (controller.pending !== controller.current) {
-						controller.pending.destroy();
-					}
-					controller.wasSelfAccepted = undefined;
-					controller.pending = undefined;
-					controller.previous = undefined;
-				}
-			}
-		}
-
-		// Dispatch the update. This performs link & evaluate at the same time. The evaluation order
-		// of this routine is different than the original evaluation. In the original evaluation,
-		// non-cyclic dependencies will be evaluated in between modules which form a cycle. Here,
-		// cycles will be evaluated together. This shouldn't be a problem in all but the most
-		// pathological of cases.
-		try {
-			// `this` should be evaluated after dynamic imports
-			dispatchRoots.delete(this);
-			dispatchRoots.add(this);
-			// Link & evaluate, update `current`, and remove `pending`. This loop very closely
-			// mirrors the original invocation to `traverseDepthFirst` above.
-			for (const dispatchRoot of dispatchRoots) {
-				await traverseDepthFirst(dispatchRoot, iterateReloadables(controller => controller.pending ?? controller.current), {
-					join: async (cycleRoot, cycleNodes) => {
-						assert(cycleRoot.current !== undefined);
-						assert(cycleNodes.every(node => node.current !== undefined));
-						if (cycleRoot.pending === undefined) {
-							// This node is imported by a dynamic import and was already visited
-							assert(cycleNodes.every(node => node.pending === undefined));
-							return;
-						} else {
-							assert(cycleNodes.every(node => node.pending !== undefined));
-						}
-						// If this node and all cycle nodes are current then we will check if any
-						// dependencies were updated
-						const nodes = [ ...cycleNodes, cycleRoot ];
-						if (nodes.every(node => node.pending === node.current)) {
-							// First check if any dependency of any cycle node was updated
-							const hasUpdatedDependencies = Fn.some(Fn.transform(
-								nodes,
-								node => Fn.map(
-									iterateReloadablesWithDynamics(controller => controller.pending)(node),
-									dependency => dependency.previous !== dependency.current && !dependency.wasSelfAccepted)));
-							if (hasUpdatedDependencies) {
-								// Dependencies updated, check if they are accepted. Only non-cycle
-								// nodes are allowed to accept.
-								if (cycleNodes.length === 0) {
-									const updatedModules = Array.from(Fn.filter(
-										iterateReloadablesWithDynamics(controller => controller.pending)(cycleRoot),
-										dependency => {
-											assert(dependency.current !== undefined);
-											return dependency.previous !== dependency.current && !dependency.wasSelfAccepted;
-										}));
-									cycleRoot.current.relink(cycleNodes, ReloadableModuleController.selectCurrent);
-									if (await tryAccept(cycleRoot.current, updatedModules)) {
-										assert.equal(cycleRoot.current, cycleRoot.pending);
-										cycleRoot.pending = undefined;
-										return;
-									}
-								}
-							} else {
-								// No updates
-								for (const node of nodes) {
-									assert.equal(node.current, node.pending);
-									node.pending = undefined;
-								}
-								return;
-							}
-						}
-						// This node needs to be replaced.
-						// Instantiate
-						for (const node of nodes) {
-							assert(node.current !== undefined && node.pending !== undefined);
-							if (
-								node.current.state.status === ModuleStatus.linked ||
-								node.current.state.status === ModuleStatus.evaluating ||
-								node.current.state.status === ModuleStatus.evaluatingAsync
-							) {
-								try {
-									await node.current.state.completion.promise;
-								} catch {}
-							}
-							const data = await dispose(node.current);
-							if (node.current === node.pending) {
-								node.current = node.current.clone();
-							} else {
-								node.current = node.pending;
-							}
-							node.pending = undefined;
-							node.current.instantiate(data);
-						}
-						// Link
-						for (const node of nodes) {
-							assert(node.current !== undefined);
-							node.current.link(ReloadableModuleController.selectCurrent);
-						}
-						// Evaluate
-						for (let ii = 0; ii < nodes.length; ++ii) {
-							const node = nodes[ii]!;
-							assert(node.current !== undefined);
-							assert(node.previous !== undefined);
-							try {
-								if (node.current.declaration === node.previous.declaration) {
-									++reevaluations;
-								} else {
-									++loads;
-								}
-								await node.current.evaluate();
-								if (node.current === node.staging) {
-									node.staging = undefined;
-								}
-							} catch (error) {
-								node.current.destroy();
-								node.current = node.previous;
-								for (let jj = ii + 1; jj < nodes.length; ++jj) {
-									const node = nodes[jj]!;
-									const instance = node.current;
-									assert(instance !== undefined);
-									assert(instance.state.status === ModuleStatus.linked);
-									instance.destroy();
-									node.current = node.previous;
-								}
-								throw error;
-							}
-						}
-						// Try self-accept
-						if (cycleNodes.length === 0) {
-							const namespace = () => cycleRoot.current!.moduleNamespace()();
-							assert(cycleRoot.previous !== undefined);
-							cycleRoot.wasSelfAccepted = await tryAcceptSelf(cycleRoot.previous, namespace);
-						}
+		// If the update contains new code then we need to make sure it will link. Normally the
+		// graph will link and then evaluate, but when dispatching a hot update a module is allowed
+		// to invalidate itself. So, we're not really sure which bindings will end up where. This
+		// step ensures that a linkage error doesn't cause the whole graph to throw an error.
+		if (initialResult.hasNewCode) {
+			const instantiated: ReloadableModuleController[] = [];
+			try {
+				traverseDepthFirst(
+					this,
+					node => node.traversal,
+					(node, traversal) => {
+						node.traversal = traversal;
+						return node.iterateWithDynamics(
+							controller => controller.pending,
+							controller => controller.previous);
 					},
-				});
-			}
+					(cycleNodes, forwardResults: readonly boolean[]) => {
+						let hasUpdate = Fn.some(forwardResults);
+						if (!hasUpdate) {
+							for (const node of cycleNodes) {
+								const current = node.select();
+								const pending = node.select(controller => controller.pending);
+								if (current !== pending) {
+									hasUpdate = true;
+									break;
+								}
+							}
+						}
+						if (hasUpdate) {
+							for (const node of cycleNodes) {
+								const pending = node.select(controller => controller.pending);
+								node.temporary = pending.clone();
+								node.temporary.instantiate();
+								instantiated.push(node);
+							}
+							for (const node of cycleNodes) {
+								const temporary = node.select(controller => controller.temporary);
+								temporary.link(controller => controller.temporary ?? controller.pending);
+							}
+						}
+						return hasUpdate;
+					});
 
-			// Some kind of success
-			const unacceptedRoot = this.current !== this.previous && !this.wasSelfAccepted;
-			return {
-				type: unacceptedRoot ? UpdateStatus.unacceptedEvaluation : UpdateStatus.success,
-				stats,
-			};
+			} catch (error) {
+				return { type: UpdateStatus.linkError, error };
+
+			} finally {
+				for (const node of instantiated) {
+					node.select(controller => controller.temporary).unlink();
+					node.temporary = undefined;
+				}
+			}
+		}
+
+		// Dispatch link & evaluate
+		try {
+			interface RunResult {
+				forwardResults: readonly RunResult[];
+				invalidated: readonly ReloadableModuleController[];
+				didUpdate: boolean;
+			}
+			await traverseDepthFirst(
+				this,
+				node => node.traversal,
+				(node, traversal) => {
+					node.traversal = traversal;
+					return node.iterateWithDynamics(
+						controller => controller.staging ?? controller.current,
+						controller => controller.previous);
+				},
+				async (cycleNodes, forwardResults: readonly RunResult[]): Promise<RunResult> => {
+					let needsUpdate = false;
+					// Check update due to new code
+					for (const node of cycleNodes) {
+						if (node.staging !== undefined) {
+							needsUpdate = true;
+							break;
+						}
+					}
+					// Relink and check update due to invalidated dependencies
+					const didUpdate = Fn.some(forwardResults, result => result.didUpdate);
+					if (didUpdate || !needsUpdate) {
+						const forwardUpdates = Array.from(Fn.concat(Fn.map(forwardResults, result => result.invalidated)));
+						for (const node of cycleNodes) {
+							const current = node.select();
+							if (didUpdate) {
+								current.relink();
+							}
+							if (!await tryAccept(node.select(), forwardUpdates)) {
+								needsUpdate = true;
+								break;
+							}
+						}
+					}
+					if (!needsUpdate) {
+						for (const node of cycleNodes) {
+							assert.equal(node.current, node.pending);
+							node.pending = undefined;
+						}
+						return { forwardResults, didUpdate, invalidated: [] };
+					}
+					// These nodes need to be replaced.
+					// 1) Instantiate
+					for (const node of cycleNodes) {
+						const current = node.select();
+						const pending = node.select(controller => controller.pending);
+						const data = await dispose(current);
+						if (current === pending) {
+							node.current = current.clone();
+						} else {
+							node.current = pending;
+						}
+						node.current.instantiate(data);
+					}
+					// 2) Link
+					for (const node of cycleNodes) {
+						node.select().link();
+					}
+					// 3) Evaluate
+					const withRollback = iterateWithRollback(cycleNodes, nodes => {
+						for (const node of nodes) {
+							const current = node.select();
+							assert(current.state.status === ModuleStatus.evaluated);
+							if (current.state.evaluationError !== undefined) {
+								node.current = node.previous;
+							}
+						}
+					});
+					for (const node of withRollback) {
+						const current = node.select();
+						const previous = node.select(controller => controller.previous);
+						if (current.declaration === previous.declaration) {
+							++reevaluations;
+						} else {
+							++loads;
+						}
+						await current.evaluate();
+						node.pending = undefined;
+						if (current === node.staging) {
+							node.staging = undefined;
+						}
+					}
+					// Try self-accept
+					const invalidated: ReloadableModuleController[] = [];
+					for (const node of cycleNodes) {
+						const current = node.select();
+						const previous = node.select(controller => controller.previous);
+						const namespace = () => current.moduleNamespace()();
+						if (!await tryAcceptSelf(previous, namespace)) {
+							invalidated.push(node);
+						}
+					}
+					return { forwardResults, invalidated, didUpdate: true };
+				});
 
 		} catch (error) {
 			// Re-link everything to ensure consistent internal state. Also, throw away pending
 			// instances.
-			traverseDepthFirst(this, iterateReloadablesWithDynamics(controller => controller.current), {
-				join: (cycleRoot, cycleNodes) => {
-					assert(cycleRoot.current !== undefined);
-					cycleRoot.current.relink(cycleNodes, ReloadableModuleController.selectCurrent);
-					for (const node of [ ...cycleNodes, cycleRoot ]) {
-						if (node.pending !== undefined) {
-							if (node.pending !== node.current) {
-								node.pending.destroy();
-							}
-							node.pending = undefined;
-						}
+			traverseDepthFirst(
+				this,
+				node => node.traversal,
+				(node, traversal) => {
+					node.traversal = traversal;
+					if (node.pending !== undefined) {
+						node.pending.unlink();
+						node.pending = undefined;
 					}
+					return node.iterateWithDynamics();
 				},
-			});
+				(cycleNodes): undefined => {
+					for (const node of cycleNodes) {
+						const current = node.select();
+						current.relink();
+					}
+				});
 			return { type: UpdateStatus.evaluationFailure, error, stats };
 
 		} finally {
 			// Dispose old modules
 			const currentControllers = new Set<ReloadableModuleController>();
-			const destroyInstances: ReloadableModuleInstance[] = [];
-			traverseBreadthFirst(this, iterateReloadablesWithDynamics(controller => controller.current), controller => {
-				currentControllers.add(controller);
-				assert(controller.pending === undefined);
-				if (
-					controller.previous !== undefined &&
-					controller.previous !== controller.current
-				) {
-					destroyInstances.push(controller.previous);
-				}
-				controller.previous = undefined;
-				controller.wasSelfAccepted = undefined;
-			});
-			await Fn.mapAwait(destroyInstances, instance => instance.destroy());
-			// nb: This will prune and destroy lazily loaded dynamic modules.
+			traverseBreadthFirst(
+				this,
+				node => node.visitIndex,
+				(node, visitIndex) => {
+					node.visitIndex = visitIndex;
+					return node.iterateWithDynamics();
+				},
+				node => {
+					currentControllers.add(node);
+					assert(node.pending === undefined);
+					node.previous = undefined;
+				});
 			for (const controller of previousControllers) {
 				if (!currentControllers.has(controller)) {
-					assert(controller.current !== undefined);
-					await prune(controller.current);
-					controller.current.destroy();
+					const current = controller.select();
+					await prune(current);
 					// Move the instance to staging to setup for `dispatch` in case it's re-imported
-					controller.staging = controller.current;
+					controller.staging = current.clone();
 					controller.current = undefined;
 					controller.previous = undefined;
-					controller.wasSelfAccepted = undefined;
 				}
 			}
 		}
+
+		return {
+			type: UpdateStatus.success,
+			stats,
+		};
+	}
+
+	private static selectCurrent(this: void, controller: ReloadableModuleController) {
+		return controller.current;
 	}
 }

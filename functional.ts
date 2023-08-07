@@ -28,6 +28,33 @@ export function somePredicate(predicates: Iterable<Predicate<unknown> | Predicat
 }
 
 /**
+ * Iterate each item from an iterable of iterables.
+ * @internal
+ */
+// TypeScript can't figure out the types on these so extra hints are needed.
+export function concat<Type>(iterator: Iterable<Type>[]): IterableIterator<Type>;
+/** @internal */
+// eslint-disable-next-line @typescript-eslint/unified-signatures
+export function concat<Type>(iterator: IterableIterator<Iterable<Type>>): IterableIterator<Type>;
+/** @internal */
+// eslint-disable-next-line @typescript-eslint/unified-signatures
+export function concat<Type>(iterator: Iterable<Iterable<Type>>): IterableIterator<Type>;
+
+/**
+ * Iterate each item in a statically supplied argument vector of iterables.
+ * @internal
+ */
+export function concat<Type>(...args: Iterable<Type>[]): IterableIterator<Type>;
+
+export function *concat(...args: any[]) {
+	for (const iterable of args.length === 1 ? args[0] : args) {
+		for (const value of iterable) {
+			yield value;
+		}
+	}
+}
+
+/**
  * Remove all non-truthy elements from a type
  * @internal
  */

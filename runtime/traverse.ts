@@ -1,32 +1,67 @@
 import assert from "node:assert/strict";
+import Fn from "dynohot/functional";
 
-/** @internal */
-export interface TraverseCyclicState {
+type NotPromiseLike =
+	null | undefined |
+	(bigint | boolean | number | object | string) &
+	{ then?: null | undefined | bigint | boolean | number | object | string };
+
+interface TraversalState<Result = unknown> {
+	readonly state: CyclicState<Result>;
+	visitIndex: number;
+}
+
+interface CyclicState<Result> {
 	readonly index: number;
 	ancestorIndex: number;
-	completion: MaybePromise<void>;
-	joined: boolean;
+	forwardResults: Completion<readonly Collectable<Result>[]> | undefined;
+	result: Completion<Collectable<Result>> | undefined;
+}
+
+type Completion<Type extends NotPromiseLike> = CompletionSync<Type> | CompletionAsync<Type>;
+
+interface CompletionSync<Type extends NotPromiseLike> {
+	readonly sync: true;
+	readonly resolution: Type;
+}
+
+interface CompletionAsync<Type> {
+	readonly sync: false;
+	readonly promise: PromiseLike<Type>;
+}
+
+interface Collectable<Type> {
+	readonly value: Type;
+	collectionIndex: number;
 }
 
 let lock = false;
-let visitation = 0;
+let currentVisitIndex = 0;
+
+/** @internal */
+export function makeTraversalState<Result>(visitIndex = -1, state?: CyclicState<Result>): TraversalState<Result> {
+	return {
+		visitIndex,
+		state: state!,
+	};
+}
 
 /** @internal */
 export function traverseBreadthFirst<
-	Node extends { visitation: number },
-	Completion extends MaybePromise<void>,
+	Node,
+	Completion extends MaybePromise<void> = void,
 >(
 	node: Node,
-	children: (node: Node) => Iterable<Node>,
+	check: (node: Node) => number,
+	begin: (node: Node, visitation: number) => Iterable<Node>,
 	visit: (node: Node) => Completion,
 ): Completion {
 	const inner = (node: Node, previousCompletion?: MaybePromise<void>) => {
-		node.visitation = current;
-		const nodes = Array.from(children(node));
+		const nodes = Array.from(begin(node, visitIndex));
 		const completion = previousCompletion === undefined ? visit(node) : previousCompletion.then(() => visit(node));
 		const pending: Promise<unknown>[] = [];
 		for (const child of nodes) {
-			if (child.visitation !== current) {
+			if (check(child) !== visitIndex) {
 				const nextCompletion = inner(child, completion);
 				if (nextCompletion) {
 					pending.push(nextCompletion);
@@ -41,7 +76,7 @@ export function traverseBreadthFirst<
 	};
 	assert(!lock);
 	lock = true;
-	const current = ++visitation;
+	const visitIndex = ++currentVisitIndex;
 	try {
 		return inner(node) as Completion;
 	} finally {
@@ -55,86 +90,167 @@ export function traverseBreadthFirst<
  * @internal
  */
 export function traverseDepthFirst<
-	Node extends { traversalState: TraverseCyclicState | undefined },
-	Completion extends MaybePromise<void>,
+	Node,
+	Result extends NotPromiseLike,
+	Join extends MaybePromise<Result>,
 >(
 	root: Node,
-	children: (node: Node) => Iterable<Node>,
-	handler: ((node: Node) => Completion) | {
-		dispatch?: (node: Node) => Completion;
-		join?: (cycleRoot: Node, cycleNodes: readonly Node[]) => Completion;
-	},
-): Completion {
-	const inner = (node: Node): TraverseCyclicState => {
-		assert(node.traversalState === undefined);
-		const state: TraverseCyclicState = node.traversalState = {
+	peek: (node: Node) => TraversalState,
+	begin: (node: Node, state: TraversalState) => Iterable<Node>,
+	join: (nodes: readonly Node[], forwardResults: Result[]) => Join,
+	unwind?: (nodes: readonly Node[]) => void,
+): Join {
+	const expect = (node: Node) => {
+		const state = peek(node);
+		assert(state.visitIndex === visitIndex);
+		return state as TraversalState<Result>;
+	};
+	const inner = (node: Node): CyclicState<Result> => {
+		// Initialize and add to stack
+		const holder = makeTraversalState<Result>(visitIndex, {
 			index,
 			ancestorIndex: index,
-			completion: undefined,
-			joined: false,
-		};
+			forwardResults: undefined,
+			result: undefined,
+		});
 		++index;
-		everyNode.push(node);
+		const { state } = holder;
+		const stackIndex = stack.length;
 		stack.push(node);
-		const pending: Promise<void>[] = [];
-		for (const child of children(node)) {
-			const childState = child.traversalState === undefined ? inner(child) : child.traversalState;
-			if (childState.completion !== undefined) {
-				pending.push(childState.completion);
-			}
-			if (!childState.joined) {
+		// Collect forward results
+		let hasPromise = false as boolean;
+		const forwardResultsMaybePromise = Array.from(Fn.transform(begin(node, holder), function*(child) {
+			const holder = peek(child) as TraversalState<Result>;
+			const childState = holder.visitIndex === visitIndex ? holder.state : inner(child);
+			const { result } = childState;
+			if (result === undefined) {
 				state.ancestorIndex = Math.min(state.ancestorIndex, childState.ancestorIndex);
+			} else if (result.sync) {
+				yield result.resolution;
+			} else {
+				hasPromise = true;
+				yield result.promise;
 			}
-		}
-		if (pending.length === 0) {
-			state.completion = dispatch?.(node);
-		} else {
-			state.completion = Promise.all(pending).then(() => dispatch?.(node));
-		}
-		const stackIndex = stack.indexOf(node);
+		}));
+		// Detect promise or sync
+		state.forwardResults = function() {
+			if (hasPromise) {
+				return {
+					sync: false,
+					promise: Promise.all(forwardResultsMaybePromise),
+				};
+			} else {
+				return {
+					sync: true,
+					resolution: forwardResultsMaybePromise as Collectable<Result>[],
+				};
+			}
+		}();
+		// Join cyclic nodes
 		assert(state.ancestorIndex <= state.index);
-		assert.notStrictEqual(stackIndex, -1);
 		if (state.ancestorIndex === state.index) {
 			const cycleNodes = stack.splice(stackIndex);
-			state.joined = true;
-			for (const node of cycleNodes) {
-				assert(node.traversalState !== undefined);
-				node.traversalState.joined = true;
-			}
-			if (join) {
-				cycleNodes.shift();
-				if (state.completion === undefined) {
-					state.completion = join(node, cycleNodes);
+			cycleNodes.reverse();
+			// Collect forward results from cycle nodes
+			let hasPromise = false as boolean;
+			const cyclicForwardResults = cycleNodes.map(node => {
+				const { state: { forwardResults } } = expect(node);
+				assert(forwardResults !== undefined);
+				if (forwardResults.sync) {
+					return forwardResults.resolution;
 				} else {
-					state.completion = state.completion.then(() => join(node, cycleNodes));
+					hasPromise = true;
+					return forwardResults.promise;
 				}
+			});
+			// Await completion of forward results of all cycle members
+			const result: Completion<Collectable<Result>> = function() {
+				if (hasPromise) {
+					return {
+						sync: false,
+						promise: async function() {
+							let forwardResults: Result[];
+							try {
+								forwardResults = collect(stackIndex, await Promise.all(cyclicForwardResults));
+							} catch (error) {
+								unwind?.(cycleNodes);
+								throw error;
+							}
+							let result: Result;
+							const maybePromise = join(cycleNodes, forwardResults);
+							if (typeof maybePromise?.then === "function") {
+								result = await maybePromise as Result;
+							} else {
+								result = maybePromise as Result;
+							}
+							return {
+								collectionIndex: -1,
+								value: result,
+							};
+						}(),
+					};
+				} else {
+					const forwardResults = collect(stackIndex, cyclicForwardResults as Iterable<Iterable<Collectable<Result>>> as any);
+					const result = join(cycleNodes, forwardResults as any);
+					if (typeof result?.then === "function") {
+						return {
+							sync: false,
+							promise: async function() {
+								return {
+									collectionIndex: -1,
+									value: await result as Result,
+								};
+							}(),
+						};
+					} else {
+						return {
+							sync: true,
+							resolution: {
+								collectionIndex: -1,
+								value: result as Result,
+							},
+						};
+					}
+				}
+			}();
+			// Assign state to all cycle members
+			for (const node of cycleNodes) {
+				const childState = expect(node).state;
+				assert.equal(childState.result, undefined);
+				childState.result = result;
 			}
 		}
 		return state;
 	};
 
-	const { dispatch, join } = function() {
-		if (typeof handler === "function") {
-			return {
-				dispatch: handler,
-				join: undefined,
-			};
-		} else {
-			return handler;
-		}
-	}();
-
 	assert(!lock);
 	lock = true;
+	const visitIndex = ++currentVisitIndex;
 	let index = 0;
-	const everyNode: Node[] = [];
 	const stack: Node[] = [];
 	try {
-		return inner(root).completion as Completion;
-	} finally {
-		for (const node of everyNode) {
-			node.traversalState = undefined;
+		const { result } = inner(root);
+		assert(result !== undefined);
+		if (result.sync) {
+			return result.resolution.value as Join;
+		} else {
+			return result.promise.then(({ value: foobar }) => foobar) as Join;
 		}
+	} catch (error) {
+		unwind?.(stack);
+		throw error;
+	} finally {
 		lock = false;
 	}
+}
+
+function collect<Type>(collectionIndex: number, forwardResultVectors: (readonly Collectable<Type>[])[]) {
+	return Array.from(Fn.transform(forwardResultVectors, function*(forwardResults) {
+		for (const result of forwardResults) {
+			if (result.collectionIndex !== collectionIndex) {
+				result.collectionIndex = collectionIndex;
+				yield result.value;
+			}
+		}
+	}));
 }

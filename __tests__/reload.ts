@@ -109,3 +109,43 @@ test("declined with accept import", async () => {
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
 });
+
+test("errors are recoverable", async () => {
+	const main = new TestModule(() =>
+		`import { counter } from ${accepted};
+		import.meta.hot.accept(${accepted}, () => {
+			expect(counter).toBe(3);
+			globalThis.seen = true;
+		});`);
+	const accepted = new TestModule(() =>
+		"export const counter = 1;");
+	await main.dispatch();
+	await accepted.update(() =>
+		`export const counter = 2;
+		throw new Error();`);
+	const result = await main.releaseUpdate();
+	expect(result?.type).toBe(UpdateStatus.evaluationFailure);
+	await accepted.update(() =>
+		"export const counter = 3;");
+	const result2 = await main.releaseUpdate();
+	expect(result2?.type).toBe(UpdateStatus.success);
+	expect(main.global.seen).toBe(true);
+});
+
+test("errors persist", async () => {
+	const main = new TestModule(() =>
+		`import {} from ${error};
+		import.meta.hot.accept();`);
+	const error = new TestModule(() => "");
+	await main.dispatch();
+	await error.update(() =>
+		"throw new Error();");
+	const result = await main.releaseUpdate();
+	expect(result?.type).toBe(UpdateStatus.evaluationFailure);
+	await main.update();
+	const result2 = await main.releaseUpdate();
+	expect(result2?.type).toBe(UpdateStatus.evaluationFailure);
+	await error.update(() => "");
+	const result3 = await main.releaseUpdate();
+	expect(result3?.type).toBe(UpdateStatus.success);
+});
