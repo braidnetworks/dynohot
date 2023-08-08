@@ -22,10 +22,49 @@ function extractImportAssertions(params: URLSearchParams) {
 }
 
 const makeAdapterModule = (url: string, importAssertions: Record<string, string>) =>
-	`import * as namespace from ${JSON.stringify(url)} assert ${JSON.stringify(importAssertions)};\n` +
-	"import { adapter } from \"hot:runtime\";\n" +
-	"const module = adapter(import.meta, namespace);\n" +
-	"export default function() { return module; }\n";
+// eslint-disable-next-line @typescript-eslint/indent
+`import * as namespace from ${JSON.stringify(url)} assert ${JSON.stringify(importAssertions)};
+import { adapter } from "hot:runtime";
+const module = adapter(import.meta, namespace);
+export default function() { return module; };\n`;
+
+const makeJsonModule = (url: string, json: string) =>
+// eslint-disable-next-line @typescript-eslint/indent
+`import { acquire } from "hot:runtime"
+function* execute() {
+	yield [ () => {}, { default: () => json } ];
+	const json = JSON.parse(${JSON.stringify(json)});
+}
+export default function module() {
+	return acquire(${JSON.stringify(url)}, execute);
+}
+module().load({ async: false, execute }, null, false, {} , []);\n`;
+
+const makeReloadableModule = async (url: string, source: string, importAssertions: Record<string, string>) => {
+	const sourceMap = await async function() {
+		try {
+			const map = convertSourceMap.fromComment(source);
+			return map.toObject();
+		} catch {}
+		try {
+			const map = await convertSourceMap.fromMapFileSource(
+				source,
+				(fileName: string) => fs.readFile(new URL(fileName, url), "utf8"));
+			return map?.toObject();
+		} catch {}
+	}();
+	// Loaders earlier in the chain are allowed to overwrite `responseURL`, which is fine, but we
+	// need to notate this in the runtime. `responseURL` can be anything, doesn't have to be unique,
+	// and is observable via `import.meta.url` and stack traces [unless there is a source map]. On
+	// the other hand, `moduleURL` uniquely identifies an instance of a module, and is used as the
+	// `parentURL` in the resolve callback. We will "burn in" `moduleURL` into the transformed
+	// source as a post-transformation process.
+	return (
+	// eslint-disable-next-line @typescript-eslint/indent
+`${transformModuleSource(url, importAssertions, source, sourceMap)}
+export default function module() { return acquire(${JSON.stringify(url)}); }\n`
+	);
+};
 
 /**
  * Resolvers are ~allowed~ to return promises, but actually they shouldn't. nodejs accidentally
@@ -49,6 +88,16 @@ function maybeThen<Type, Result>(
 	} else {
 		// @ts-expect-error
 		return then(maybePromise);
+	}
+}
+
+function asString(sourceText: ArrayBuffer | Uint8Array | string) {
+	if (sourceText instanceof Buffer) {
+		return sourceText.toString("utf8");
+	} else if (typeof sourceText === "string") {
+		return sourceText;
+	} else {
+		return Buffer.from(sourceText).toString("utf8");
 	}
 }
 
@@ -176,44 +225,26 @@ export const load: NodeLoad = (urlString, context, nextLoad) => {
 				assert(moduleURL);
 				const importAssertions = extractImportAssertions(url.searchParams);
 				const result = await nextLoad(moduleURL, { ...context, importAssertions });
-				if (result.format === "module" && !ignorePattern.test(moduleURL)) {
-					const sourceText = typeof result.source === "string"
-						? result.source
-						: Buffer.from(result.source).toString("utf8");
-					const sourceMap = await async function() {
-						try {
-							const map = convertSourceMap.fromComment(sourceText);
-							return map.toObject();
-						} catch {}
-						try {
-							const map = await convertSourceMap.fromMapFileSource(
-								sourceText,
-								(fileName: string) => fs.readFile(new URL(fileName, moduleURL), "utf8"));
-							return map?.toObject();
-						} catch {}
-					}();
-					const transformedSource = transformModuleSource(moduleURL, importAssertions, sourceText, sourceMap);
-					// Loaders earlier in the chain are allowed to overwrite `responseURL`, which is
-					// fine, but we need to notate this in the runtime. `responseURL` can be
-					// anything, doesn't have to be unique, and is observable via `import.meta.url`
-					// and stack traces [unless there is a source map]. On the other hand,
-					// `moduleURL` uniquely identifies an instance of a module, and is used as the
-					// `parentURL` in the resolve callback. We will "burn in" `moduleURL` into the
-					// transformed source as a post-transformation process.
-					const sourceWithModuleURL =
-						transformedSource +
-						`export default function module() { return acquire(${JSON.stringify(moduleURL)}); }\n`;
-					return {
-						...result,
-						responseURL: result.responseURL,
-						source: sourceWithModuleURL,
-					};
-				} else {
-					return {
-						format: "module",
-						source: makeAdapterModule(moduleURL, importAssertions),
-					};
+				if (!ignorePattern.test(moduleURL)) {
+					if (result.format === "module") {
+						return {
+							...result,
+							source: await makeReloadableModule(moduleURL, asString(result.source), importAssertions),
+						};
+					} else if (result.format === "json") {
+						return {
+							...result,
+							format: "module",
+							source: makeJsonModule(moduleURL, asString(result.source)),
+						};
+					}
 				}
+
+				// Otherwise this is an adapter module
+				return {
+					format: "module",
+					source: makeAdapterModule(moduleURL, importAssertions),
+				};
 			}();
 
 			default:
