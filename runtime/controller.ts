@@ -506,7 +506,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 				invalidated: readonly ReloadableModuleController[];
 				treeDidUpdate: boolean;
 			}
-			await traverseDepthFirst(
+			const result = await traverseDepthFirst(
 				this,
 				node => node.traversal,
 				(node, traversal) => {
@@ -519,7 +519,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 					let needsUpdate = false;
 					// Check update due to new code
 					for (const node of cycleNodes) {
-						if (node.staging !== undefined) {
+						if (node.staging !== undefined || isInvalidated(node.select())) {
 							needsUpdate = true;
 							break;
 						}
@@ -597,6 +597,11 @@ export class ReloadableModuleController implements AbstractModuleController {
 					}
 					return { forwardResults, invalidated, treeDidUpdate: true };
 				});
+
+			if (!result.treeDidUpdate) {
+				// Strange that got here since it should have been caught in the precheck traversal.
+				return undefined;
+			}
 
 		} catch (error) {
 			// Re-link everything to ensure consistent internal state. Also, throw away pending
