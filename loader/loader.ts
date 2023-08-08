@@ -23,12 +23,16 @@ function extractImportAssertions(params: URLSearchParams) {
 	return Object.fromEntries(entries);
 }
 
-const makeAdapterModule = (url: string, importAssertions: Record<string, string>) =>
-// eslint-disable-next-line @typescript-eslint/indent
-`import * as namespace from ${JSON.stringify(url)} assert ${JSON.stringify(importAssertions)};
+const makeAdapterModule = (url: string, importAssertions: Record<string, string>) => {
+	const encodedURL = JSON.stringify(url);
+	return (
+	// eslint-disable-next-line @typescript-eslint/indent
+`import * as namespace from ${encodedURL} assert ${JSON.stringify(importAssertions)};
 import { adapter } from "hot:runtime";
-const module = adapter(import.meta, namespace);
-export default function() { return module; };\n`;
+const module = adapter(${encodedURL}, namespace);
+export default function() { return module; };\n`
+	);
+};
 
 const makeJsonModule = (url: string, json: string) =>
 // eslint-disable-next-line @typescript-eslint/indent

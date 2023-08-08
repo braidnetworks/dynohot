@@ -5,6 +5,6 @@ import { makeAcquire } from "./controller.js";
 export const acquire = makeAcquire((specifier, assertions) => import(specifier, assertions));
 
 /** @internal */
-export function adapter(meta: ImportMeta, namespace: Record<string, unknown>) {
-	return new AdapterModuleController(meta, namespace);
+export function adapter(url: string, namespace: Record<string, unknown>) {
+	return new AdapterModuleController(url, namespace);
 }

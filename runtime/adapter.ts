@@ -1,5 +1,4 @@
 import type { AbstractModuleController, AbstractModuleInstance, ModuleNamespace, ResolvedBinding } from "./module.js";
-import assert from "node:assert/strict";
 import Fn from "dynohot/functional";
 import { ModuleStatus } from "./module.js";
 
@@ -12,20 +11,13 @@ import { ModuleStatus } from "./module.js";
 export class AdapterModuleController implements AbstractModuleController, AbstractModuleInstance {
 	private readonly namespace: ResolvedBinding<ModuleNamespace>;
 	private readonly resolutions: ReadonlyMap<string | null, () => unknown>;
-	private readonly url;
 	readonly reloadable = false;
 	readonly state = { status: ModuleStatus.evaluated };
 
 	constructor(
-		meta: ImportMeta,
+		private readonly url: string,
 		namespace: Record<string, unknown>,
 	) {
-		// Extract the URL of the underlying module
-		const url = new URL(meta.url);
-		const realURL = url.searchParams.get("url");
-		assert.notEqual(realURL, null);
-		this.url = realURL;
-
 		// Memoize resolved exports to maintain equality of the resolution. Note that this will fail
 		// under some corner cases like:
 		//
