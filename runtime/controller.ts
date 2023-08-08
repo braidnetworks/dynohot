@@ -488,6 +488,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 					});
 
 			} catch (error) {
+				rollback();
 				return { type: UpdateStatus.linkError, error };
 
 			} finally {
@@ -503,7 +504,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 			interface RunResult {
 				forwardResults: readonly RunResult[];
 				invalidated: readonly ReloadableModuleController[];
-				didUpdate: boolean;
+				treeDidUpdate: boolean;
 			}
 			await traverseDepthFirst(
 				this,
@@ -524,14 +525,12 @@ export class ReloadableModuleController implements AbstractModuleController {
 						}
 					}
 					// Relink and check update due to invalidated dependencies
-					const didUpdate = Fn.some(forwardResults, result => result.didUpdate);
-					if (didUpdate || !needsUpdate) {
+					const treeDidUpdate = Fn.some(forwardResults, result => result.treeDidUpdate);
+					if (treeDidUpdate && !needsUpdate) {
 						const forwardUpdates = Array.from(Fn.concat(Fn.map(forwardResults, result => result.invalidated)));
 						for (const node of cycleNodes) {
 							const current = node.select();
-							if (didUpdate) {
-								current.relink();
-							}
+							current.relink();
 							if (!await tryAccept(node.select(), forwardUpdates)) {
 								needsUpdate = true;
 								break;
@@ -543,7 +542,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 							assert.equal(node.current, node.pending);
 							node.pending = undefined;
 						}
-						return { forwardResults, didUpdate, invalidated: [] };
+						return { forwardResults, treeDidUpdate, invalidated: [] };
 					}
 					// These nodes need to be replaced.
 					// 1) Instantiate
@@ -596,7 +595,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 							invalidated.push(node);
 						}
 					}
-					return { forwardResults, invalidated, didUpdate: true };
+					return { forwardResults, invalidated, treeDidUpdate: true };
 				});
 
 		} catch (error) {
