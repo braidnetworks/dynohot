@@ -15,7 +15,9 @@ const ignorePattern = ignoreString === null ? /[/\\]node_modules[/\\]/ : new Reg
 const root = String(new URL("..", self));
 const runtimeURL = `${root}runtime/runtime.js`;
 
-function extractImportAssertions(params: URLSearchParams) {
+type ImportAssertions = Record<string, string>;
+
+function extractImportAssertions(params: URLSearchParams): ImportAssertions {
 	const entries = Array.from(Fn.transform(
 		Fn.filter(params, entry => entry[0] === "with"),
 		entry => new URLSearchParams(entry[1])));
@@ -23,7 +25,7 @@ function extractImportAssertions(params: URLSearchParams) {
 	return Object.fromEntries(entries);
 }
 
-const makeAdapterModule = (url: string, importAssertions: Record<string, string>) => {
+const makeAdapterModule = (url: string, importAssertions: ImportAssertions) => {
 	const encodedURL = JSON.stringify(url);
 	return (
 	// eslint-disable-next-line @typescript-eslint/indent
@@ -34,7 +36,7 @@ export default function() { return module; };\n`
 	);
 };
 
-const makeJsonModule = (url: string, json: string) =>
+const makeJsonModule = (url: string, json: string, importAssertions: ImportAssertions) =>
 // eslint-disable-next-line @typescript-eslint/indent
 `import { acquire } from "hot:runtime"
 function* execute() {
@@ -44,9 +46,9 @@ function* execute() {
 export default function module() {
 	return acquire(${JSON.stringify(url)}, execute);
 }
-module().load({ async: false, execute }, null, false, {} , []);\n`;
+module().load({ async: false, execute }, null, false, ${JSON.stringify(importAssertions)}, []);\n`;
 
-const makeReloadableModule = async (url: string, source: string, importAssertions: Record<string, string>) => {
+const makeReloadableModule = async (url: string, source: string, importAssertions: ImportAssertions) => {
 	const sourceMap = await async function() {
 		try {
 			const map = convertSourceMap.fromComment(source);
@@ -230,7 +232,13 @@ export const load: NodeLoad = (urlString, context, nextLoad) => {
 				const moduleURL = url.searchParams.get("url");
 				assert(moduleURL);
 				const importAssertions = extractImportAssertions(url.searchParams);
-				const result = await nextLoad(moduleURL, { ...context, importAssertions });
+				const result = await nextLoad(moduleURL, {
+					...context,
+					// Kind of a hack.. a proper solution would involve passing along `format` to
+					// the underlying controller so that `hot:reload` knows what to request.
+					...importAssertions.type === "json" && { format: "json" },
+					importAssertions,
+				});
 				if (!ignorePattern.test(moduleURL)) {
 					if (result.format === "module") {
 						return {
@@ -241,7 +249,7 @@ export const load: NodeLoad = (urlString, context, nextLoad) => {
 						return {
 							...result,
 							format: "module",
-							source: makeJsonModule(moduleURL, asString(result.source)),
+							source: makeJsonModule(moduleURL, asString(result.source), importAssertions),
 						};
 					}
 				}
