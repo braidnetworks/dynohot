@@ -190,9 +190,9 @@ An example of the transformation follows:
 
 `main.js`
 ```js
-import { name } from "./symbol";
+import { symbol } from "./symbol";
 export const name = "hello world";
-console.log(name);
+console.log(symbol);
 ```
 
 ```js
