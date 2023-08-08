@@ -1,0 +1,6 @@
+*
+!LICENSE
+!README.md
+!**/*.d.ts
+!dist/**/*.js
+dist/__tests__
