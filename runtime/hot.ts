@@ -49,7 +49,14 @@ function selectHot(instance: ReloadableModuleInstance) {
 	return instance.state.environment.hot;
 }
 
-export class Hot {
+export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unknown>> {
+	/**
+	 * This is the `data` object passed to the `dispose` handler of the previous `Hot` instance.
+	 * You can use this to stash references like an HTTP server or database connection for the
+	 * next instance of your module.
+	 */
+	readonly data?: Data | undefined;
+
 	#accepts: {
 		callback: ((modules: readonly ModuleNamespace[]) => Promise<void> | void) | undefined;
 		localEntries: readonly LocalModuleEntry[];
@@ -69,11 +76,12 @@ export class Hot {
 		module: unknown,
 		instance: unknown,
 		usesDynamicImport: boolean,
-		public readonly data?: unknown,
+		data?: Data,
 	) {
 		this.#module = module as ReloadableModuleController;
 		this.#instance = instance as ReloadableModuleInstance;
 		this.#usesDynamicImport = usesDynamicImport;
+		this.data = data;
 		Object.freeze(this);
 	}
 
@@ -266,8 +274,8 @@ export class Hot {
 	 * Similar to `dispose`, but this is invoked when the module is removed from the dependency
 	 * graph entirely.
 	 */
-	prune(callback: () => Promise<void> | void) {
-		this.#prune.push(callback);
+	prune(onPrune: () => Promise<void> | void) {
+		this.#prune.push(onPrune);
 	}
 }
 

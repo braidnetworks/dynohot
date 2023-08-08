@@ -6,6 +6,8 @@ import convertSourceMap from "convert-source-map";
 import Fn from "dynohot/functional";
 import { transformModuleSource } from "./transform.js";
 
+export type { Hot } from "dynohot/hot";
+
 const self = new URL(import.meta.url);
 const ignoreString = self.searchParams.get("ignore");
 const ignorePattern = ignoreString === null ? /[/\\]node_modules[/\\]/ : new RegExp(ignoreString);
