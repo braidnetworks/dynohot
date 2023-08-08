@@ -383,13 +383,13 @@ interface VisitorState {
 const importToGetterVisitor: Visitor<VisitorState> = {
 	// Look for top-level await
 	AwaitExpression(path) {
-		if (path.scope === this.program.scope) {
+		if (!this.usesTopLevelAwait && path.scope.getFunctionParent() === null) {
 			this.usesTopLevelAwait = true;
 		}
 	},
 
 	ForAwaitStatement(path) {
-		if (path.scope === this.program.scope) {
+		if (!this.usesTopLevelAwait && path.scope.getFunctionParent() === null) {
 			this.usesTopLevelAwait = true;
 		}
 	},

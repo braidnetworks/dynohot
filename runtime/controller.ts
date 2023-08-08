@@ -8,7 +8,7 @@ import { ReloadableModuleInstance } from "./instance.js";
 import { BindingType } from "./module/binding.js";
 import { ModuleStatus } from "./module.js";
 import { makeTraversalState, traverseBreadthFirst, traverseDepthFirst } from "./traverse.js";
-import { debounceAsync, debounceTimer, discriminatedTypePredicate, evictModule, iterateWithRollback } from "./utility.js";
+import { debounceAsync, debounceTimer, discriminatedTypePredicate, evictModule, iterateWithRollback, makeRelative, plural } from "./utility.js";
 import { FileWatcher } from "./watcher.js";
 
 /** @internal */
@@ -76,6 +76,7 @@ interface UpdateDeclined {
 
 interface UpdateUnaccepted {
 	type: UpdateStatus.unaccepted;
+	chain: readonly InvalidationChain[];
 }
 
 interface UpdateEvaluationError {
@@ -95,14 +96,18 @@ interface UpdateStats {
 	reevaluations: number;
 }
 
+interface InvalidationChain {
+	modules: readonly ReloadableModuleController[];
+	next: readonly InvalidationChain[] | undefined;
+}
+
 function logUpdate(update: UpdateResult) {
 	if (update === undefined) {
 		return;
 	}
-	const plural = (word: string, count: number) => `${word}${count === 1 ? "" : "s"}`;
 	switch (update.type) {
 		case UpdateStatus.declined:
-			console.error(`[hot] A pending update was explicitly declined:\n${update.declined.map(module => `- ${module.url}`).join("\n")}`);
+			console.error(`[hot] A pending update was explicitly declined:\n${update.declined.map(module => `- ${makeRelative(module.url)}`).join("\n")}`);
 			break;
 
 		case UpdateStatus.evaluationFailure: {
@@ -124,9 +129,27 @@ function logUpdate(update: UpdateResult) {
 			break;
 		}
 
-		case UpdateStatus.unaccepted:
-			console.error("[hot] A pending update was not accepted, and reached the root module.");
+		case UpdateStatus.unaccepted: {
+			// Nice:
+			// https://stackoverflow.com/questions/4965335/how-to-print-binary-tree-diagram-in-java/8948691#8948691
+			const logChain = (chain: InvalidationChain, prefix = "", childrenPrefix = "") => {
+				console.error(`  ${prefix}[${chain.modules.map(module => makeRelative(module.url)).join(", ")}]`);
+				if (chain.next !== undefined) {
+					for (const [ ii, child ] of chain.next.entries()) {
+						if (ii === chain.next.length - 1) {
+							logChain(child, `${childrenPrefix}└─ `, `${childrenPrefix}   `);
+						} else {
+							logChain(child, `${childrenPrefix}├─ `, `${childrenPrefix}│  `);
+						}
+					}
+				}
+			};
+			console.error("[hot] A pending update was not accepted, and reached the root module:");
+			for (const chain of update.chain) {
+				logChain(chain);
+			}
 			break;
+		}
 
 		case UpdateStatus.unacceptedEvaluation: {
 			const { duration, loads, reevaluations } = update.stats();
@@ -399,8 +422,26 @@ export class ReloadableModuleController implements AbstractModuleController {
 			}(initialResult));
 			return { type: UpdateStatus.declined, declined };
 		} else if (initialResult.invalidated.length > 0) {
+			// Tracing invalidations is actually pretty cumbersome because we need to compare cyclic
+			// groups with the actual import entries to get something parsable by a human.
+			const chain = Array.from(function *traverse(result): Iterable<InvalidationChain> {
+				const importedModules = new Set(Fn.transform(result.invalidated, function*(controller) {
+					const current = controller.select();
+					yield* current.iterateDependencies();
+				}));
+				const importedInvalidations = Array.from(Fn.transform(result.forwardResults, function*(result) {
+					const invalidatedImports = result.invalidated.filter(controller => importedModules.has(controller));
+					if (invalidatedImports.length > 0) {
+						yield* traverse(result);
+					}
+				}));
+				yield {
+					modules: result.invalidated,
+					next: importedInvalidations.length > 0 ? importedInvalidations : undefined,
+				};
+			}(initialResult));
 			rollback();
-			return { type: UpdateStatus.unaccepted };
+			return { type: UpdateStatus.unaccepted, chain };
 		}
 
 		// If the update contains new code then we need to make sure it will link. Normally the

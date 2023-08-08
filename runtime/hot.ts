@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import Fn from "dynohot/functional";
 import { ReloadableModuleController } from "./controller.js";
 import { type ModuleController, ModuleStatus } from "./module.js";
+import { makeRelative, plural } from "./utility.js";
 
 // Prior art:
 // https://webpack.js.org/api/hot-module-replacement
@@ -38,6 +39,7 @@ type ModuleNamespace = Record<string, unknown>;
 type LocalModuleEntry = {
 	found: true;
 	module: ReloadableModuleController;
+	specifier: string;
 } | {
 	found: false;
 	module: undefined | null;
@@ -114,6 +116,19 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 					if (acceptedModules.every(module => module != null)) {
 						return acceptedModules as ReloadableModuleController[];
 					} else {
+						if (hot !== null) {
+							const specifiers = Array.from(Fn.transform(
+								acceptedModules.entries(),
+								function*([ ii, module ]) {
+									if (module == null) {
+										yield accepts.localEntries[ii]!.specifier;
+									}
+								}));
+							console.error(`[hot] Warning: ${plural("specifier", specifiers.length)} ${specifiers.map(specifier => JSON.stringify(specifier)).join(", ")} from ${makeRelative(hot.#module.url)} could not be resolved.`);
+							if (accepts.localEntries.length > 1) {
+								console.error(`[hot] The entire accept group of: ${accepts.localEntries.map(entry => JSON.stringify(entry.specifier)).join(", ")} will be ignored.`);
+							}
+						}
 						return [];
 					}
 				}));
@@ -220,7 +235,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 				if (module == null) {
 					return { found: false, module, specifier };
 				} else {
-					return { found: true, module };
+					return { found: true, module, specifier };
 				}
 			});
 			const callback = arg2 as ((dependency: readonly ModuleNamespace[]) => Promise<void> | void) | undefined;

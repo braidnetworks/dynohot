@@ -315,7 +315,12 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 	}
 
 	*iterateDependencies() {
-		yield* Fn.map(this.declaration.loadedModules, entry => entry.controller());
+		yield* Fn.transform(this.declaration.loadedModules, function*(entry) {
+			const controller = entry.controller();
+			if (controller.reloadable) {
+				yield controller;
+			}
+		});
 		yield* Fn.map(this.dynamicImports, instance => instance.controller);
 	}
 

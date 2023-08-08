@@ -1,5 +1,7 @@
 import assert from "node:assert";
 import { createRequire } from "node:module";
+import { relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** @internal */
 export const moduleNamespacePropertyDescriptor = {
@@ -105,6 +107,23 @@ export function *iterateWithRollback<Type>(vector: readonly Type[], rollback: (p
 			}());
 		}
 	}
+}
+
+const cwd = process.cwd();
+
+/** @internal */
+export function makeRelative(url: string) {
+	if (url.startsWith("file:")) {
+		const path = fileURLToPath(url);
+		return relative(cwd, path);
+	} else {
+		return url;
+	}
+}
+
+/** @internal */
+export function plural(word: string, count: number) {
+	return `${word}${count === 1 ? "" : "s"}`;
 }
 
 /** @internal */
