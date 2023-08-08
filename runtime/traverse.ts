@@ -107,13 +107,13 @@ export function traverseDepthFirst<
 	};
 	const inner = (node: Node): CyclicState<Result> => {
 		// Initialize and add to stack
+		const nodeIndex = index++;
 		const holder = makeTraversalState<Result>(visitIndex, {
-			index,
-			ancestorIndex: index,
+			index: nodeIndex,
+			ancestorIndex: nodeIndex,
 			forwardResults: undefined,
 			result: undefined,
 		});
-		++index;
 		const { state } = holder;
 		const stackIndex = stack.length;
 		stack.push(node);
@@ -171,7 +171,7 @@ export function traverseDepthFirst<
 						promise: async function() {
 							let forwardResults: Result[];
 							try {
-								forwardResults = collect(stackIndex, await Promise.all(cyclicForwardResults));
+								forwardResults = collect(nodeIndex, await Promise.all(cyclicForwardResults));
 							} catch (error) {
 								unwind?.(cycleNodes);
 								throw error;
@@ -190,7 +190,7 @@ export function traverseDepthFirst<
 						}(),
 					};
 				} else {
-					const forwardResults = collect(stackIndex, cyclicForwardResults as Iterable<Iterable<Collectable<Result>>> as any);
+					const forwardResults = collect(nodeIndex, cyclicForwardResults as Iterable<Iterable<Collectable<Result>>> as any);
 					const result = join(cycleNodes, forwardResults as any);
 					if (typeof result?.then === "function") {
 						return {

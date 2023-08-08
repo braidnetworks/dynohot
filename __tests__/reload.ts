@@ -149,3 +149,20 @@ test("errors persist", async () => {
 	const result3 = await main.releaseUpdate();
 	expect(result3?.type).toBe(UpdateStatus.success);
 });
+
+// Caused due to issue in `traverseDepthFirst` result collection
+test("common dependency", async () => {
+	const main = new TestModule(() =>
+		`import {} from ${left};
+		import {} from ${right};
+		import.meta.hot.accept(${left});`);
+	const left = new TestModule(() =>
+		`import {} from ${child}`);
+	const right = new TestModule(() =>
+		`import {} from ${child}`);
+	const child = new TestModule(() => "");
+	await main.dispatch();
+	await child.update(() => "");
+	const result = await main.releaseUpdate();
+	expect(result?.type).toBe(UpdateStatus.unaccepted);
+});
