@@ -4,6 +4,7 @@ import { BindingType } from "./binding.js";
 // 16.2.1.6.4 `InitializeEnvironment`
 /** @internal */
 export function initializeEnvironment<Request extends ModuleRequestEntry, Resolution extends object>(
+	url: string,
 	loadedModules: Iterable<Request>,
 	/** Return the module namespace */
 	moduleNamespace: (module: Request) => Resolution,
@@ -46,9 +47,13 @@ export function initializeEnvironment<Request extends ModuleRequestEntry, Resolu
 					const resolution = resolveExport(importedModule, binding.name);
 					// ii. If resolution is either null or ambiguous, throw a SyntaxError exception.
 					if (resolution === null) {
-						throw new SyntaxError(`The requested module '${importedModule.specifier}' does not provide an export named '${binding.name}'`);
+						throw Object.assign(
+							new SyntaxError(`The requested module '${importedModule.specifier}' does not provide an export named '${binding.name}'`),
+							{ url });
 					} else if (resolution === undefined) {
-						throw new SyntaxError(`The requested module '${importedModule.specifier}' contains conflicting star exports for name '${binding.name}'`);
+						throw Object.assign(
+							new SyntaxError(`The requested module '${importedModule.specifier}' contains conflicting star exports for name '${binding.name}'`),
+							{ url });
 					}
 					// iii. If resolution.[[BindingName]] is namespace, then
 					//   1. Let namespace be GetModuleNamespace(resolution.[[Module]]).

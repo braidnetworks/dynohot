@@ -141,6 +141,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		assert(this.state.status !== ModuleStatus.new);
 		if (this.state.status === ModuleStatus.linking) {
 			const bindings = initializeEnvironment(
+				this.controller.url,
 				this.declaration.loadedModules,
 				entry => {
 					const module = entry.controller().select(select);
@@ -178,6 +179,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			this.state.status === ModuleStatus.evaluated ||
 			this.state.status === ModuleStatus.evaluatingAsync);
 		const bindings = initializeEnvironment(
+			this.controller.url,
 			this.declaration.loadedModules,
 			entry => {
 				const module = entry.controller().select(select);

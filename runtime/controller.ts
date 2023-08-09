@@ -118,9 +118,16 @@ function logUpdate(update: UpdateResult) {
 			break;
 		}
 
-		case UpdateStatus.linkError:
-			console.error("[hot] Caught link error:", update.error);
+		case UpdateStatus.linkError: {
+			const { error } = update;
+			console.error("[hot] Caught link error:");
+			if (error instanceof SyntaxError && "url" in error) {
+				console.error(`${error.name}: ${error.message}\n    at (${String(error.url)})`);
+			} else {
+				console.error(error);
+			}
 			break;
+		}
 
 		case UpdateStatus.success: {
 			const { duration, loads, reevaluations } = update.stats();
