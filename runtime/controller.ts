@@ -197,7 +197,12 @@ export class ReloadableModuleController implements AbstractModuleController {
 						Object.entries(importAssertions),
 						([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
 				] as Iterable<[ string, string ]>);
-				await import(`hot:reload?${String(params)}`);
+				try {
+					await import(`hot:reload?${String(params)}`);
+				} catch (error) {
+					console.log(error);
+					return;
+				}
 				void this.application.requestUpdate();
 			})();
 		});
