@@ -1,3 +1,5 @@
+import type { MessagePort } from "node:worker_threads";
+
 // https://nodejs.org/api/esm.html#resolvespecifier-context-nextresolve
 interface ResolveContext {
 	/** Export conditions of the relevant `package.json` */
@@ -54,3 +56,10 @@ interface LoadResult {
 type NextLoad = (urlString: string, context: LoadContext) => MaybePromiseLike<LoadResult>;
 
 export type NodeLoad = (urlString: string, context: LoadContext, nextLoad: NextLoad) => MaybePromiseLike<LoadResult>;
+
+interface GlobalPreloadContext {
+	port: MessagePort;
+}
+
+// https://nodejs.org/api/esm.html#globalpreload
+export type NodeGlobalPreload = (context: GlobalPreloadContext) => string;
