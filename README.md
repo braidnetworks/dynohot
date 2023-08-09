@@ -134,7 +134,46 @@ export declare class Hot<Data extends Record<keyof any, unknown>> {
 PATTERNS
 --------
 
-Pass forward a database connection:
+### Swappable middleware [Express, Koa, etc]
+```ts
+import express from "express";
+import yourMiddleware from "./your-middleware.js";
+
+// Reusable utility function
+function makeSwappableMiddleware<Middleware extends (...args: readonly any[]) => any>(
+    initial: Middleware,
+): [
+    swap: (next: Middleware) => void,
+    middleware: Middleware,
+] {
+    if (import.meta.hot) {
+        let current = initial;
+        const swap = (next: Middleware) => {
+            current = next;
+        };
+        const middleware = ((...args) => current(...args)) as Middleware;
+        return [ swap, middleware ];
+    } else {
+        const swap = () => {
+            throw new Error("Middleware is not swappable.");
+        };
+        return [ swap, initial ];
+    }
+}
+
+// Updates to "./your-middleware.js" will be applied without needing to restart
+// an HTTP server. No overhead incurred in production.
+const app = express();
+const [ swap, middleware ] = makeSwappableMiddleware(yourMiddleware);
+app.use(middleware);
+import.meta.hot?.accept("./your-middleware.js", () => {
+    swap(yourMiddleware);
+});
+app.listen(8000);
+```
+
+
+### Pass forward a database connection
 ```js
 import { createClient } from "redis";
 
@@ -150,7 +189,7 @@ import.meta.hot?.dispose(data => {
 ```
 
 
-Invalidate module based on external events:
+### Invalidate module based on external events
 ```js
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
@@ -165,7 +204,7 @@ if (import.meta.hot) {
 ```
 
 
-Well-typed `data` parameter [TypeScript]:
+### Well-typed `data` parameter [TypeScript]
 ```ts
 import type { Hot } from "dynohot";
 import type { Server } from "node:http";
