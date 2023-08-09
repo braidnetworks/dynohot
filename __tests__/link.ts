@@ -22,10 +22,10 @@ test("link error is recoverable from parent", async () => {
 	const child = new TestModule(() =>
 		"export const symbol = null;");
 	await main.dispatch();
-	await child.update(() => "");
+	child.update(() => "");
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.linkError);
-	await main.update(() => `import {} from ${child};`);
+	main.update(() => `import {} from ${child};`);
 	const result2 = await main.releaseUpdate();
 	expect(result2?.type).toBe(UpdateStatus.success);
 });

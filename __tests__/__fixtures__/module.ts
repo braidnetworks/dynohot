@@ -1,4 +1,4 @@
-import type { Context, Script } from "node:vm";
+import type { Context, SourceTextModuleOptions } from "node:vm";
 import assert from "node:assert/strict";
 import { SourceTextModule, createContext } from "node:vm";
 import * as jest from "@jest/globals";
@@ -12,19 +12,35 @@ const modules = new Map<string, TestModule>();
 
 interface Environment {
 	readonly context: Context;
+	readonly pending: TestModule[];
 	readonly runtime: SourceTextModule;
+	readonly top: TestModule;
+}
+
+interface HotInstanceSourceModuleOptions extends SourceTextModuleOptions {
+	readonly environment: Environment;
+}
+
+class HotInstanceSourceModule extends SourceTextModule {
+	declare readonly namespace: {
+		default: () => ReloadableModuleController;
+	};
+
+	readonly environment: Environment;
+	readonly evaluated = false;
+
+	constructor(source: string, options: HotInstanceSourceModuleOptions) {
+		const { environment, ...rest } = options;
+		super(source, rest);
+		this.environment = environment;
+	}
 }
 
 /** @internal */
 export class TestModule {
 	private environment: Environment | undefined;
-	private vm: SourceTextModule & {
-		environment: Environment;
-		evaluated?: boolean;
-		namespace: Record<string, any>;
-	} | undefined;
-
-	private readonly url = `test:///module${count++}`;
+	private vm: HotInstanceSourceModule | undefined;
+	private readonly url = `test:///module${++count}`;
 
 	constructor(
 		private source: () => string,
@@ -39,7 +55,7 @@ export class TestModule {
 
 	get namespace() {
 		assert(this.vm !== undefined);
-		const controller: ReloadableModuleController = this.vm.namespace.default();
+		const controller = this.vm.namespace.default();
 		const instance = controller.select();
 		return instance.moduleNamespace()();
 	}
@@ -47,64 +63,77 @@ export class TestModule {
 	async dispatch() {
 		assert.equal(this.environment, undefined);
 		const context = createContext();
-		this.environment = { context } as Environment;
+		const environment: Partial<Environment> = {
+			context,
+			pending: [],
+			top: this,
+		};
 		// @ts-expect-error
-		this.environment.runtime = TestModule.makeRuntime(this.environment);
-		const vm = this.instantiate(this.environment);
-		await vm.link(TestModule.link);
-		await vm.evaluate();
-		const controller: ReloadableModuleController = vm.namespace.default();
-		await controller.main();
+		environment.runtime = TestModule.makeRuntime(environment as Environment);
+		const vm = this.instantiate(environment as Environment);
+		await this.linkAndEvaluate();
+		await vm.namespace.default().main();
 	}
 
-	releaseUpdate() {
+	async releaseUpdate() {
 		assert(this.vm !== undefined);
-		const controller: ReloadableModuleController = this.vm.namespace.default();
-		return controller.application.requestUpdateResult();
-	}
-
-	async update(source?: () => string) {
 		assert(this.environment !== undefined);
-		assert(this.vm !== undefined);
+		const updates = this.environment.pending.splice(0);
+		for (const update of updates) {
+			assert(update.vm !== undefined);
+			update.vm = undefined;
+			update.instantiate(this.environment);
+			await update.linkAndEvaluate();
+		}
+		return this.vm.namespace.default().application.requestUpdateResult();
+	}
+
+	update(source?: () => string) {
+		assert(this.environment !== undefined);
 		if (source) {
 			this.source = source;
 		}
-		this.vm = undefined;
-		const vm = this.instantiate(this.environment);
-		vm.evaluated = true;
-		await vm.link(TestModule.link);
-		await vm.evaluate();
+		this.environment.pending.push(this);
 	}
 
 	toString() {
 		return JSON.stringify(this.url);
 	}
 
-	private instantiate(environment: Environment) {
+	private instantiate(environment: Environment): HotInstanceSourceModule {
 		if (this.vm === undefined) {
+			assert(this.environment === undefined || this.environment === environment);
+			this.environment = environment;
 			const source =
 				transformModuleSource(this.url, {}, this.source(), undefined) +
 				`export default function module() { return acquire(${JSON.stringify(this.url)}); }\n`;
-			this.vm = new SourceTextModule(source, {
+			return this.vm = new HotInstanceSourceModule(source, {
 				context: environment.context,
+				environment,
 				identifier: this.url,
 				// @ts-expect-error
-				importModuleDynamically: TestModule.dynamicImport,
-				initializeImportMeta: (meta: Record<string, any>) => {
+				importModuleDynamically: TestModule.dynamicImport.bind(undefined, environment),
+				initializeImportMeta: meta => {
 					meta.url = this.url;
 				},
-			}) as NonNullable<typeof this.vm>;
-			// @ts-expect-error
-			this.vm.environment = this.environment = environment;
-			return this.vm;
+			});
 		} else {
 			assert(this.environment === environment);
 			return this.vm;
 		}
 	}
 
+	private async linkAndEvaluate() {
+		assert(this.environment !== undefined);
+		assert(this.vm !== undefined);
+		if (this.vm.status === "unlinked") {
+			await this.vm.link(TestModule.link.bind(undefined, this.environment));
+			await this.vm.evaluate();
+		}
+	}
+
 	private static makeRuntime(environment: Environment) {
-		const runtime = new SourceTextModule(
+		return new SourceTextModule(
 			`const [ Jest, Adapter, Reloadable ] = await Promise.all([
 				import("@jest/globals"),
 				import("hot:test/adapter"),
@@ -115,20 +144,13 @@ export class TestModule {
 			globalThis.expect = Jest.expect;\n`, {
 				context: environment.context,
 				// @ts-expect-error
-				importModuleDynamically: TestModule.dynamicImport,
+				importModuleDynamically: TestModule.dynamicImport.bind(undefined, environment),
 			});
-		// @ts-expect-error
-		runtime.environment = environment;
-		return runtime;
 	}
 
-	private static link(this: void, specifier: string, referencingModule: SourceTextModule) {
+	private static link(this: void, environment: Environment, specifier: string) {
 		switch (specifier) {
-			case "hot:runtime": {
-				// @ts-expect-error
-				const environment: Environment = referencingModule.environment;
-				return environment.runtime;
-			}
+			case "hot:runtime": return environment.runtime;
 			default:
 				if (specifier.startsWith("hot:module?")) {
 					const url = new URL(specifier);
@@ -136,15 +158,14 @@ export class TestModule {
 					assert(moduleURL !== null);
 					const module = modules.get(moduleURL);
 					assert(module !== undefined);
-					// @ts-expect-error
-					return module.instantiate(referencingModule.environment);
+					return module.instantiate(environment);
 				} else {
 					throw new Error(`Unexpected specifier: ${specifier}`);
 				}
 		}
 	}
 
-	private static async dynamicImport(this: void, specifier: string, referencingModule: Script) {
+	private static async dynamicImport(this: void, environment: Environment, specifier: string) {
 		switch (specifier) {
 			case "hot:test/adapter": return adapter;
 			case "hot:test/reloadable": return reloadable;
@@ -156,12 +177,8 @@ export class TestModule {
 					assert(moduleURL !== null);
 					const module = modules.get(moduleURL);
 					assert(module !== undefined);
-					// @ts-expect-error
-					const vm = module.instantiate(referencingModule.environment);
-					if (vm.evaluated === undefined) {
-						await vm.link(TestModule.link);
-						await vm.evaluate();
-					}
+					const vm = module.instantiate(environment);
+					await module.linkAndEvaluate();
 					return vm;
 				} else {
 					throw new Error(`Unexpected specifier: ${specifier}`);

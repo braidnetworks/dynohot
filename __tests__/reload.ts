@@ -17,7 +17,7 @@ test("simple test", async () => {
 	const child = new TestModule(() =>
 		"export const counter = 1;");
 	await main.dispatch();
-	await child.update(() =>
+	child.update(() =>
 		"export const counter = 2;");
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
@@ -31,7 +31,7 @@ test("unaccepted should not run", async () => {
 		globalThis.seen = true;`);
 	const child = new TestModule(() => "");
 	await main.dispatch();
-	await child.update(() => "");
+	child.update(() => "");
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.unaccepted);
 });
@@ -46,7 +46,7 @@ test("accepted with unupdated accepted", async () => {
 	const unupdated = new TestModule(() => "");
 	const updated = new TestModule(() => "");
 	await main.dispatch();
-	await updated.update(() => "");
+	updated.update(() => "");
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
 });
@@ -58,7 +58,7 @@ test("unaccepted dynamic should not run", async () => {
 		globalThis.seen = true;`);
 	const child = new TestModule(() => "");
 	await main.dispatch();
-	await child.update(() => "");
+	child.update(() => "");
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.unaccepted);
 });
@@ -76,7 +76,7 @@ test("accepted dynamic", async () => {
 		});`);
 	const child = new TestModule(() => "export const counter = 1;");
 	await main.dispatch();
-	await child.update(() => "export const counter = 2;");
+	child.update(() => "export const counter = 2;");
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
 	expect(main.global.seen2).toBe(true);
@@ -91,7 +91,7 @@ test("unchanged declined import", async () => {
 	const declined = new TestModule(() =>
 		"import.meta.hot.decline();");
 	await main.dispatch();
-	await accepted.update(() => "");
+	accepted.update(() => "");
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
 });
@@ -105,7 +105,7 @@ test("declined with accept import", async () => {
 		import.meta.hot.accept(${accepted});
 		import.meta.hot.decline();`);
 	await main.dispatch();
-	await accepted.update(() => "");
+	accepted.update(() => "");
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
 });
@@ -120,12 +120,12 @@ test("errors are recoverable", async () => {
 	const accepted = new TestModule(() =>
 		"export const counter = 1;");
 	await main.dispatch();
-	await accepted.update(() =>
+	accepted.update(() =>
 		`export const counter = 2;
 		throw new Error();`);
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.evaluationFailure);
-	await accepted.update(() =>
+	accepted.update(() =>
 		"export const counter = 3;");
 	const result2 = await main.releaseUpdate();
 	expect(result2?.type).toBe(UpdateStatus.success);
@@ -138,14 +138,14 @@ test("errors persist", async () => {
 		import.meta.hot.accept();`);
 	const error = new TestModule(() => "");
 	await main.dispatch();
-	await error.update(() =>
+	error.update(() =>
 		"throw new Error();");
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.evaluationFailure);
-	await main.update();
+	main.update();
 	const result2 = await main.releaseUpdate();
 	expect(result2?.type).toBe(UpdateStatus.evaluationFailure);
-	await error.update(() => "");
+	error.update(() => "");
 	const result3 = await main.releaseUpdate();
 	expect(result3?.type).toBe(UpdateStatus.success);
 });
@@ -162,7 +162,7 @@ test("common dependency", async () => {
 		`import {} from ${child}`);
 	const child = new TestModule(() => "");
 	await main.dispatch();
-	await child.update(() => "");
+	child.update(() => "");
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.unaccepted);
 });

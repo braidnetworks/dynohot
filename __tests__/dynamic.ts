@@ -19,7 +19,7 @@ test("lazy dynamic import with error is recoverable", async () => {
 	const error = new TestModule(() =>
 		"throw new Error()");
 	await main.dispatch();
-	await error.update(() => "");
+	error.update(() => "");
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
 });

@@ -13,7 +13,7 @@ test("dispose handlers should run bottom up", async () => {
 			seen = true;
 		});`);
 	await main.dispatch();
-	await main.update(() => "");
+	main.update(() => "");
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
 });
@@ -27,7 +27,7 @@ test("dispose handlers should run even if invalidated", async () => {
 			globalThis.seen = true;
 		});`);
 	await main.dispatch();
-	await main.update(() => "");
+	main.update(() => "");
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
 	expect(main.global.seen).toBe(true);
