@@ -166,3 +166,17 @@ test("common dependency", async () => {
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.unaccepted);
 });
+
+// Caused by assumptions that `node.current` would be defined during the update process.
+test("new module node should work", async () => {
+	const main = new TestModule(() =>
+		`import {} from ${child};
+		import.meta.hot.accept(${child});`);
+	const child = new TestModule(() => "");
+	await main.dispatch();
+	child.update(() =>
+		`import {} from ${newChild}`);
+	const newChild = new TestModule(() => "");
+	const result = await main.releaseUpdate();
+	expect(result?.type).toBe(UpdateStatus.success);
+});

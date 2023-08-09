@@ -166,10 +166,15 @@ function logUpdate(update: UpdateResult) {
 export class ReloadableModuleController implements AbstractModuleController {
 	readonly reloadable = true;
 
+	/** The currently "active" module instance */
 	private current: ReloadableModuleInstance | undefined;
+	/** During an update, but before this module is evaluated, this is what `current` will become */
 	private pending: ReloadableModuleInstance | undefined;
+	/** Durning an update, this is what `current` was and/or is */
 	private previous: ReloadableModuleInstance | undefined;
+	/** Written to at *any* time in response to the file watcher */
 	private staging: ReloadableModuleInstance | undefined;
+	/** Temporary, maybe "unlinked" instances used for link testing */
 	private temporary: ReloadableModuleInstance | undefined;
 	private traversal = makeTraversalState();
 	private visitIndex = 0;
@@ -321,7 +326,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 
 	select(select = ReloadableModuleController.selectCurrent) {
 		const instance = select(this);
-		assert(instance);
+		assert(instance !== undefined);
 		return instance;
 	}
 
@@ -365,46 +370,52 @@ export class ReloadableModuleController implements AbstractModuleController {
 			hasNewCode: boolean;
 			needsDispatch: boolean;
 		}
-		const previousControllers: ReloadableModuleController[] = [];
+		const nextControllers: ReloadableModuleController[] = [];
 		const initialResult = traverseDepthFirst(
 			this,
 			node => node.traversal,
 			(node, traversal) => {
 				node.traversal = traversal;
-				return node.iterateWithDynamics();
+				node.pending = node.staging ?? node.select();
+				node.previous = node.current;
+				return node.iterateWithDynamics(
+					controller => controller.pending,
+					controller => controller.previous ?? controller.pending);
 			},
 			(cycleNodes, forwardResults: readonly DryRunResult[]): DryRunResult => {
 				let needsDispatch = false;
 				let hasNewCode = false;
 				const forwardUpdates = Array.from(Fn.concat(Fn.map(forwardResults, result => result.invalidated)));
 				const invalidated = Array.from(Fn.filter(cycleNodes, node => {
-					previousControllers.push(node);
-					const current = node.select();
-					node.pending = current;
-					node.previous = current;
-					if (node.staging !== undefined) {
-						node.pending = node.staging;
-						hasNewCode = true;
-					}
+					nextControllers.push(node);
+					const nodeHasNewCode = node.previous !== node.pending;
+					hasNewCode ||= nodeHasNewCode;
 					if (
-						node.staging !== undefined ||
-						isInvalidated(current) ||
-						!isAccepted(current, forwardUpdates)
+						nodeHasNewCode ||
+						node.current === undefined ||
+						isInvalidated(node.current) ||
+						!isAccepted(node.current, forwardUpdates)
 					) {
 						needsDispatch = true;
-						return !isAcceptedSelf(current);
+						return node.current === undefined || !isAcceptedSelf(node.current);
 					}
 				}));
-				const declined = Array.from(Fn.filter(invalidated, node => isDeclined(node.select())));
+				const declined = Array.from(Fn.filter(invalidated, node => node.current !== undefined && isDeclined(node.current)));
 				const hasDecline = declined.length > 0 || Fn.some(forwardResults, result => result.hasDecline);
 				needsDispatch ||= Fn.some(forwardResults, result => result.needsDispatch);
 				hasNewCode ||= Fn.some(forwardResults, result => result.hasNewCode);
 				return { forwardResults, declined, invalidated, hasDecline, hasNewCode, needsDispatch };
+			},
+			pendingNodes => {
+				for (const node of pendingNodes) {
+					node.pending = undefined;
+					node.previous = undefined;
+				}
 			});
 
 		// Rollback routine which undoes the above traversal.
 		const rollback = () => {
-			for (const controller of previousControllers) {
+			for (const controller of nextControllers) {
 				controller.pending = undefined;
 				controller.previous = undefined;
 			}
@@ -458,15 +469,14 @@ export class ReloadableModuleController implements AbstractModuleController {
 						node.traversal = traversal;
 						return node.iterateWithDynamics(
 							controller => controller.pending,
-							controller => controller.previous);
+							controller => controller.previous ?? controller.pending);
 					},
 					(cycleNodes, forwardResults: readonly boolean[]) => {
 						let hasUpdate = Fn.some(forwardResults);
 						if (!hasUpdate) {
 							for (const node of cycleNodes) {
-								const current = node.select();
 								const pending = node.select(controller => controller.pending);
-								if (current !== pending) {
+								if (pending !== node.current) {
 									hasUpdate = true;
 									break;
 								}
@@ -499,6 +509,19 @@ export class ReloadableModuleController implements AbstractModuleController {
 			}
 		}
 
+		// Collect previous controllers
+		const previousControllers: ReloadableModuleController[] = [];
+		traverseBreadthFirst(
+			this,
+			node => node.visitIndex,
+			(node, visitIndex) => {
+				node.visitIndex = visitIndex;
+				return node.iterateWithDynamics();
+			},
+			node => {
+				previousControllers.push(node);
+			});
+
 		// Dispatch link & evaluate
 		try {
 			interface RunResult {
@@ -512,8 +535,8 @@ export class ReloadableModuleController implements AbstractModuleController {
 				(node, traversal) => {
 					node.traversal = traversal;
 					return node.iterateWithDynamics(
-						controller => controller.staging ?? controller.current,
-						controller => controller.previous);
+						controller => controller.pending,
+						controller => controller.previous ?? node.pending);
 				},
 				async (cycleNodes, forwardResults: readonly RunResult[]): Promise<RunResult> => {
 					let needsUpdate = false;
@@ -547,11 +570,10 @@ export class ReloadableModuleController implements AbstractModuleController {
 					// These nodes need to be replaced.
 					// 1) Instantiate
 					for (const node of cycleNodes) {
-						const current = node.select();
 						const pending = node.select(controller => controller.pending);
-						const data = await dispose(current);
-						if (current === pending) {
-							node.current = current.clone();
+						const data = node.current === undefined ? undefined : await dispose(node.current);
+						if (node.current === pending) {
+							node.current = node.current.clone();
 						} else {
 							node.current = pending;
 						}
@@ -573,8 +595,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 					});
 					for (const node of withRollback) {
 						const current = node.select();
-						const previous = node.select(controller => controller.previous);
-						if (current.declaration === previous.declaration) {
+						if (node.previous !== undefined && current.declaration === node.previous.declaration) {
 							++reevaluations;
 						} else {
 							++loads;
@@ -588,11 +609,12 @@ export class ReloadableModuleController implements AbstractModuleController {
 					// Try self-accept
 					const invalidated: ReloadableModuleController[] = [];
 					for (const node of cycleNodes) {
-						const current = node.select();
-						const previous = node.select(controller => controller.previous);
-						const namespace = () => current.moduleNamespace()();
-						if (!await tryAcceptSelf(previous, namespace)) {
-							invalidated.push(node);
+						if (node.previous !== undefined) {
+							const current = node.select();
+							const namespace = () => current.moduleNamespace()();
+							if (!await tryAcceptSelf(node.previous, namespace)) {
+								invalidated.push(node);
+							}
 						}
 					}
 					return { forwardResults, invalidated, treeDidUpdate: true };
