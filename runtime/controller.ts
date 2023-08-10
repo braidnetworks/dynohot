@@ -98,7 +98,8 @@ interface UpdateStats {
 
 interface InvalidationChain {
 	modules: readonly ReloadableModuleController[];
-	next: readonly InvalidationChain[] | undefined;
+	/** `undefined` means it's the end of the chain, `null` means we've seen this branch before */
+	next: readonly InvalidationChain[] | undefined | null;
 }
 
 function logUpdate(update: UpdateResult) {
@@ -140,8 +141,11 @@ function logUpdate(update: UpdateResult) {
 			// Nice:
 			// https://stackoverflow.com/questions/4965335/how-to-print-binary-tree-diagram-in-java/8948691#8948691
 			const logChain = (chain: InvalidationChain, prefix = "", childrenPrefix = "") => {
-				console.error(`  ${prefix}[${chain.modules.map(module => makeRelative(module.url)).join(", ")}]`);
-				if (chain.next !== undefined) {
+				const suffix = chain.next === undefined ? " 🔄" : "";
+				console.error(`  ${prefix}[${chain.modules.map(module => makeRelative(module.url)).join(", ")}]${suffix}`);
+				if (chain.next === null) {
+					console.error(`  ${childrenPrefix}[...]`);
+				} else if (chain.next !== undefined) {
 					for (const [ ii, child ] of chain.next.entries()) {
 						if (ii === chain.next.length - 1) {
 							logChain(child, `${childrenPrefix}└─ `, `${childrenPrefix}   `);
@@ -468,24 +472,51 @@ export class ReloadableModuleController implements AbstractModuleController {
 		} else if (initialResult.invalidated.length > 0) {
 			// Tracing invalidations is actually pretty cumbersome because we need to compare cyclic
 			// groups with the actual import entries to get something parsable by a human.
-			const chain = Array.from(function *traverse(result): Iterable<InvalidationChain> {
-				const importedModules = new Set(Fn.transform(result.invalidated, function*(controller) {
-					const current = controller.select();
-					yield* current.iterateDependencies();
-				}));
-				const importedInvalidations = Array.from(Fn.transform(result.forwardResults, function*(result) {
-					const invalidatedImports = result.invalidated.filter(controller => importedModules.has(controller));
-					if (invalidatedImports.length > 0) {
-						yield* traverse(result);
+			const [ release, visitIndex ] = acquireVisitIndex();
+			try {
+				const chain = Array.from(function *traverse(result): Iterable<InvalidationChain> {
+					// Don't re-traverse shared dependencies
+					for (const node of result.invalidated) {
+						if (node.visitIndex === visitIndex) {
+							yield {
+								modules: result.invalidated,
+								next: null,
+							};
+							return;
+						} else {
+							node.visitIndex = visitIndex;
+						}
 					}
-				}));
-				yield {
-					modules: result.invalidated,
-					next: importedInvalidations.length > 0 ? importedInvalidations : undefined,
-				};
-			}(initialResult));
-			rollback();
-			return { type: UpdateStatus.unaccepted, chain };
+					const importedModules = new Set(Fn.transform(result.invalidated, function*(controller) {
+						const current = controller.select();
+						yield* current.iterateDependencies();
+					}));
+					const importedInvalidations = Array.from(Fn.transform(result.forwardResults, function*(result) {
+						const invalidatedImports = result.invalidated.filter(controller => importedModules.has(controller));
+						if (invalidatedImports.length > 0) {
+							yield* traverse(result);
+						}
+					}));
+					yield {
+						modules: result.invalidated,
+						next: function() {
+							if (importedInvalidations.length === 0) {
+								return undefined;
+							} else if (importedInvalidations.every(result => result.next === null)) {
+								// Also, skip branches that only include truncated results from the
+								// "re-traverse" conditional above.
+								return null;
+							} else {
+								return importedInvalidations;
+							}
+						}(),
+					};
+				}(initialResult));
+				rollback();
+				return { type: UpdateStatus.unaccepted, chain };
+			} finally {
+				release();
+			}
 		}
 
 		// If the update contains new code then we need to make sure it will link. Normally the
