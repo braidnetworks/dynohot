@@ -1,4 +1,4 @@
-import type { ExportIndirectEntry, ExportIndirectStarEntry, ExportStarEntry, ModuleRequestEntry } from "./module/binding.js";
+import type { ExportIndirectEntry, ExportIndirectStarEntry, ExportStarEntry, ModuleRequestEntry } from "./binding.js";
 import type { ModuleController, ModuleExports, ModuleNamespace } from "./module.js";
 
 /** @internal */

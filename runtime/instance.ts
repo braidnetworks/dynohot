@@ -4,11 +4,12 @@ import type { AbstractModuleInstance, ModuleController, ModuleExports, Resolutio
 import type { WithResolvers } from "./utility.js";
 import assert from "node:assert/strict";
 import Fn from "dynohot/functional";
+import { BindingType } from "./binding.js";
 import { ReloadableModuleController } from "./controller.js";
 import { Hot, didDynamicImport } from "./hot.js";
-import { BindingType } from "./module/binding.js";
-import { initializeEnvironment } from "./module/initialize.js";
+import { initializeEnvironment } from "./initialize.js";
 import { ModuleStatus } from "./module.js";
+import { makeAcquireVisitIndex } from "./traverse.js";
 import { moduleNamespacePropertyDescriptor, withResolvers } from "./utility.js";
 
 type ModuleState =
@@ -76,9 +77,12 @@ interface ModuleContinuationAsync {
 	readonly previous: Promise<IteratorResult<unknown>>;
 }
 
+const acquireLinkIndex = makeAcquireVisitIndex();
+
 /** @internal */
 export class ReloadableModuleInstance implements AbstractModuleInstance {
 	readonly reloadable = true;
+	linkIndex = 0;
 	state: ModuleState = { status: ModuleStatus.new };
 	dynamicImports: {
 		readonly controller: ReloadableModuleController;
@@ -412,9 +416,19 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 	}
 
 	// 16.2.1.6.3 ResolveExport ( exportName [ , resolveSet ] )
-	resolveExport(exportName: string, select?: SelectModuleInstance): Resolution {
+	resolveExport(exportName: string, select?: SelectModuleInstance) {
+		const [ release, linkIndex ] = acquireLinkIndex();
+		try {
+			return this.resolveExportInner(exportName, select, linkIndex);
+		} finally {
+			release();
+		}
+	}
+
+	resolveExportInner(exportName: string, select: SelectModuleInstance | undefined, linkIndex: number): Resolution {
 		// 1. Assert: module.[[Status]] is not new.
 		assert(this.state.status !== ModuleStatus.new);
+
 		// 2. If resolveSet is not present, set resolveSet to a new empty List.
 		// 3. For each Record { [[Module]], [[ExportName]] } r of resolveSet, do
 
@@ -425,18 +439,19 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		if (imports === undefined) {
 			imports = new Set();
 			resolveSet.set(this, imports);
-		} else {
+		} else if (imports.has(exportName)) {
 			// a. If module and r.[[Module]] are the same Module Record and SameValue(exportName, r.
 			//    [[ExportName]]) is true, then
-			// eslint-disable-next-line no-lonely-if
-			if (imports.has(exportName)) {
-				// i. Assert: This is a circular import request.
-				// ii. Return null.
-				return null;
-			}
+			//   i. Assert: This is a circular import request.
+			//   ii. Return null.
+			return null;
 		}
 		// 4. Append the Record { [[Module]]: module, [[ExportName]]: exportName } to resolveSet.
-		imports.add(exportName);
+		if (this.linkIndex === linkIndex) {
+			return null;
+		}
+		this.linkIndex = linkIndex;
+
 		// 5. For each ExportEntry Record e of module.[[LocalExportEntries]], do
 		const localExport = this.state.environment.exports[exportName];
 		if (localExport !== undefined && Object.hasOwn(this.state.environment.exports, exportName)) {
@@ -462,7 +477,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			} else {
 				// 1. Assert: module imports a specific binding for this export.
 				// 2. Return importedModule.ResolveExport(e.[[ImportName]], resolveSet).
-				return importedModule.resolveExport(indirectExport.binding.name, select);
+				return importedModule.resolveExportInner(indirectExport.binding.name, select, linkIndex);
 			}
 		}
 		// 7. If SameValue(exportName, "default") is true, then
@@ -479,7 +494,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			// a. Let importedModule be GetImportedModule(module, e.[[ModuleRequest]]).
 			const importedModule = exportEntry.moduleRequest.controller().select(select);
 			// b. Let resolution be importedModule.ResolveExport(exportName, resolveSet).
-			const resolution = importedModule.resolveExport(exportName, select);
+			const resolution = importedModule.resolveExportInner(exportName, select, linkIndex);
 			// c. If resolution is ambiguous, return ambiguous.
 			if (resolution === undefined) {
 				return undefined;

@@ -1,11 +1,11 @@
+import type { BindingEntry, ExportIndirectEntry, ExportIndirectStarEntry, ExportStarEntry } from "./binding.js";
 import type { LoadedModuleRequestEntry, ModuleBody, ModuleDeclaration } from "./declaration.js";
-import type { BindingEntry, ExportIndirectEntry, ExportIndirectStarEntry, ExportStarEntry } from "./module/binding.js";
 import type { AbstractModuleController, ModuleNamespace } from "./module.js";
 import assert from "node:assert/strict";
 import Fn from "dynohot/functional";
+import { BindingType } from "./binding.js";
 import { dispose, isAccepted, isAcceptedSelf, isDeclined, isInvalidated, prune, tryAccept, tryAcceptSelf } from "./hot.js";
 import { ReloadableModuleInstance } from "./instance.js";
-import { BindingType } from "./module/binding.js";
 import { ModuleStatus } from "./module.js";
 import { makeAcquireVisitIndex, makeTraversalState, traverseDepthFirst } from "./traverse.js";
 import { debounceAsync, debounceTimer, discriminatedTypePredicate, evictModule, iterateWithRollback, makeRelative, plural } from "./utility.js";
@@ -313,7 +313,6 @@ export class ReloadableModuleController implements AbstractModuleController {
 			importAssertions,
 			usesDynamicImport,
 			loadedModules,
-			// TODO: Check name collisions statically. Not a big deal for well-typed code.
 			indirectExportEntries: new Map(function*() {
 				const predicate = Fn.somePredicate<BindingEntry, ExportIndirectEntry | ExportIndirectStarEntry>([
 					discriminatedTypePredicate(BindingType.indirectExport),

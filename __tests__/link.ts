@@ -29,3 +29,21 @@ test("link error is recoverable from parent", async () => {
 	const result2 = await main.releaseUpdate();
 	expect(result2?.type).toBe(UpdateStatus.success);
 });
+
+// I never got around to implementing the cyclic aggregate prevention clauses of the specification.
+test("infinite re-export", async () => {
+	const main = new TestModule(() =>
+		`import { symbol } from ${child};
+		import.meta.hot.accept();`);
+	const child: TestModule = new TestModule(() =>
+		`export * from ${child};`);
+	await expect(main.dispatch()).rejects.toThrowError(SyntaxError);
+});
+
+// Babel checks this for us
+test("duplicate named export", async () => {
+	const main = new TestModule(() =>
+		`export const name = 1;
+		export const name = 2`);
+	await expect(main.dispatch()).rejects.toThrowError(SyntaxError);
+});

@@ -32,9 +32,11 @@ export interface AbstractModuleController {
  * @internal
  */
 export interface AbstractModuleInstance {
+	linkIndex: number;
 	state: { status: ModuleStatus };
 	moduleNamespace: (select: SelectModuleInstance) => ResolvedBinding<ModuleNamespace>;
 	resolveExport: (exportName: string, select: SelectModuleInstance) => Resolution;
+	resolveExportInner: (exportName: string, select: SelectModuleInstance, linkIndex: number) => Resolution;
 }
 
 /** @internal */

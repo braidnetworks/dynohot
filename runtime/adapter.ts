@@ -9,8 +9,9 @@ import { ModuleStatus } from "./module.js";
  * @internal
  */
 export class AdapterModuleController implements AbstractModuleController, AbstractModuleInstance {
+	linkIndex = 0;
 	private readonly namespace: ResolvedBinding<ModuleNamespace>;
-	private readonly resolutions: ReadonlyMap<string | null, () => unknown>;
+	private readonly resolutions: ReadonlyMap<string, () => unknown>;
 	readonly reloadable = false;
 	readonly state = { status: ModuleStatus.evaluated };
 
@@ -30,7 +31,7 @@ export class AdapterModuleController implements AbstractModuleController, Abstra
 		//
 		// In this case, module.mjs will not export anything from "node:fs" because the bindings
 		// will be seen as ambiguous.
-		this.resolutions = new Map<string | null, ResolvedBinding>(
+		this.resolutions = new Map<string, ResolvedBinding>(
 			Fn.map(Object.keys(namespace), key => [ key, () => namespace[key] ]));
 		this.namespace = () => namespace;
 	}
@@ -44,8 +45,12 @@ export class AdapterModuleController implements AbstractModuleController, Abstra
 		return this.namespace;
 	}
 
-	resolveExport(exportName: string | null) {
+	resolveExport(exportName: string) {
 		return this.resolutions.get(exportName) ?? null;
+	}
+
+	resolveExportInner(exportName: string) {
+		return this.resolveExport(exportName);
 	}
 
 	select() {
