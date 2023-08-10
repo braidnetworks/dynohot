@@ -1,13 +1,13 @@
 import type { LoadedModuleRequestEntry, ModuleBody, ModuleDeclaration } from "./declaration.js";
 import type { BindingEntry, ExportIndirectEntry, ExportIndirectStarEntry, ExportStarEntry } from "./module/binding.js";
-import type{ AbstractModuleController, ModuleNamespace } from "./module.js";
+import type { AbstractModuleController, ModuleNamespace } from "./module.js";
 import assert from "node:assert/strict";
 import Fn from "dynohot/functional";
 import { dispose, isAccepted, isAcceptedSelf, isDeclined, isInvalidated, prune, tryAccept, tryAcceptSelf } from "./hot.js";
 import { ReloadableModuleInstance } from "./instance.js";
 import { BindingType } from "./module/binding.js";
 import { ModuleStatus } from "./module.js";
-import { makeTraversalState, traverseBreadthFirst, traverseDepthFirst } from "./traverse.js";
+import { makeAcquireVisitIndex, makeTraversalState, traverseDepthFirst } from "./traverse.js";
 import { debounceAsync, debounceTimer, discriminatedTypePredicate, evictModule, iterateWithRollback, makeRelative, plural } from "./utility.js";
 import { FileWatcher } from "./watcher.js";
 
@@ -168,6 +168,8 @@ function logUpdate(update: UpdateResult) {
 
 	}
 }
+
+const acquireVisitIndex = makeAcquireVisitIndex();
 
 /** @internal */
 export class ReloadableModuleController implements AbstractModuleController {
@@ -360,6 +362,26 @@ export class ReloadableModuleController implements AbstractModuleController {
 		yield* Fn.map(instance.dynamicImports, entry => entry.controller);
 	}
 
+	private *traverse(
+		iterate: (node: ReloadableModuleController) => Iterable<ReloadableModuleController> =
+		node => node.iterateWithDynamics(),
+	) {
+		const [ release, visitIndex ] = acquireVisitIndex();
+		try {
+			yield* function *traverse(node: ReloadableModuleController): Iterable<ReloadableModuleController> {
+				for (const child of iterate(node)) {
+					if (child.visitIndex !== visitIndex) {
+						child.visitIndex = visitIndex;
+						yield child;
+						yield* traverse(child);
+					}
+				}
+			}(this);
+		} finally {
+			release();
+		}
+	}
+
 	private async requestUpdate(this: ReloadableModuleController): Promise<UpdateResult> {
 
 		// Set up statistics tracking
@@ -522,17 +544,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 		}
 
 		// Collect previous controllers
-		const previousControllers: ReloadableModuleController[] = [];
-		traverseBreadthFirst(
-			this,
-			node => node.visitIndex,
-			(node, visitIndex) => {
-				node.visitIndex = visitIndex;
-				return node.iterateWithDynamics();
-			},
-			node => {
-				previousControllers.push(node);
-			});
+		const previousControllers = Array.from(this.traverse());
 
 		// Dispatch link & evaluate
 		try {
@@ -661,19 +673,13 @@ export class ReloadableModuleController implements AbstractModuleController {
 
 		} finally {
 			// Dispose old modules
-			const currentControllers = new Set<ReloadableModuleController>();
-			traverseBreadthFirst(
-				this,
-				node => node.visitIndex,
-				(node, visitIndex) => {
-					node.visitIndex = visitIndex;
-					return node.iterateWithDynamics();
-				},
-				node => {
-					currentControllers.add(node);
+			const currentControllers = new Set(function*(that) {
+				for (const node of that.traverse()) {
 					assert(node.pending === undefined);
 					node.previous = undefined;
-				});
+					yield node;
+				}
+			}(this));
 			for (const controller of previousControllers) {
 				if (!currentControllers.has(controller)) {
 					const current = controller.select();

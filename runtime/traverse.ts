@@ -35,8 +35,19 @@ interface Collectable<Type> {
 	collectionIndex: number;
 }
 
-let lock = false;
-let currentVisitIndex = 0;
+/** @internal */
+export const makeAcquireVisitIndex = function() {
+	return () => {
+		let lock = false;
+		let currentVisitIndex = 0;
+		return () => {
+			assert(!lock);
+			lock = true;
+			const release = () => { lock = false; };
+			return [ release, ++currentVisitIndex ] as const;
+		};
+	};
+}();
 
 /** @internal */
 export function makeTraversalState<Result>(visitIndex = -1, state?: CyclicState<Result>): TraversalState<Result> {
@@ -46,43 +57,7 @@ export function makeTraversalState<Result>(visitIndex = -1, state?: CyclicState<
 	};
 }
 
-/** @internal */
-export function traverseBreadthFirst<
-	Node,
-	Completion extends MaybePromise<void> = void,
->(
-	node: Node,
-	check: (node: Node) => number,
-	begin: (node: Node, visitation: number) => Iterable<Node>,
-	visit: (node: Node) => Completion,
-): Completion {
-	const inner = (node: Node, previousCompletion?: MaybePromise<void>) => {
-		const nodes = Array.from(begin(node, visitIndex));
-		const completion = previousCompletion === undefined ? visit(node) : previousCompletion.then(() => visit(node));
-		const pending: Promise<unknown>[] = [];
-		for (const child of nodes) {
-			if (check(child) !== visitIndex) {
-				const nextCompletion = inner(child, completion);
-				if (nextCompletion) {
-					pending.push(nextCompletion);
-				}
-			}
-		}
-		if (pending.length === 0) {
-			return completion;
-		} else {
-			return Promise.all(pending);
-		}
-	};
-	assert(!lock);
-	lock = true;
-	const visitIndex = ++currentVisitIndex;
-	try {
-		return inner(node) as Completion;
-	} finally {
-		lock = false;
-	}
-}
+const acquireVisitIndex = makeAcquireVisitIndex();
 
 /**
  * This is a generalized version of the depth-first algorithm in `16.2.1.5.2 Link()` and
@@ -223,9 +198,7 @@ export function traverseDepthFirst<
 		return state;
 	};
 
-	assert(!lock);
-	lock = true;
-	const visitIndex = ++currentVisitIndex;
+	const [ release, visitIndex ] = acquireVisitIndex();
 	let index = 0;
 	const stack: Node[] = [];
 	try {
@@ -240,7 +213,7 @@ export function traverseDepthFirst<
 		unwind?.(stack);
 		throw error;
 	} finally {
-		lock = false;
+		release();
 	}
 }
 
