@@ -1,8 +1,8 @@
 [![npm version](https://badgen.now.sh/npm/v/dynohot)](https://www.npmjs.com/package/dynohot)
 [![isc license](https://badgen.now.sh/npm/license/dynohot)](https://github.com/braidnetworks/dynohot/blob/main/LICENSE)
 
-dynohot - Hot module reloading for nodejs
-=========================================
+🔥 dynohot - Hot module reloading for nodejs
+============================================
 
 `dynohot` is a nodejs [loader](https://github.com/nodejs/loaders) which implements hot module
 reloading, or HMR. When a module's code is updated, the modules which depend on it are given the
@@ -38,13 +38,14 @@ export const now = new Date();
 
 ```
 $ while true; do sleep 1; touch now.js; done &
+
 $ node --no-warnings=ExperimentalWarnings --loader dynohot main.js
 [hot] Loaded 1 new module, reevaluated 0 existing modules in 2ms.
 2023-08-07T23:49:45.693Z
 [hot] Loaded 1 new module, reevaluated 0 existing modules in 2ms.
 2023-08-07T23:49:46.700Z
 [hot] Loaded 1 new module, reevaluated 0 existing modules in 1ms.
-2023-08-07T23:49:47.718Z
+2023-08-07T23:49:47.718Z  // <-- 🔥 Look the timestamp is changing
 [hot] Loaded 1 new module, reevaluated 0 existing modules in 2ms.
 2023-08-07T23:49:48.724Z
 [hot] Loaded 1 new module, reevaluated 0 existing modules in 3ms.
@@ -54,15 +55,56 @@ $ node --no-warnings=ExperimentalWarnings --loader dynohot main.js
 ^C
 ```
 
-TYPESCRIPT
-----------
 
-If you use TypeScript you can add the following triple-slash directive to a `*.d.ts` file in your
-project and `import.meta.hot` will be typed correctly.
+GETTING STARTED
+---------------
 
-```ts
-/// <reference types="dynohot/import-meta" />
+Probably your service has a file called `main.js` or whatever that starts an HTTP server. The
+easiest way to enable hot reloading is to add a call to `hot.import.meta.accept` in this "top"
+module. So your file would look something like this:
+
+```js
+import { createServer } from "node:http";
+import { someMiddlewareProvider } from "./the-rest-of-your-app.js";
+
+const server = createServer();
+server.on("request", someMiddlewareProvider);
+
+server.listen(8000);
+
+// 🔥 This is what you have to do. This is "self accepting".
+import.meta.hot?.accept(() => {
+    server.close();
+});
 ```
+
+When a file in the import graph is updated, that change will traverse back down the module graph and
+eventually reach the main module, which accepts itself. The `accept` handler is basically
+instructions on how to clean up after itself. You need to close the old HTTP server because
+otherwise if the module reevaluates then it will fail when it tries to call `listen()`.
+
+How is this better than something like `nodemon`? Well, you could compare nodemon to a bomb and
+dynohot to a scalpel. Imagine all the files and modules in your application as a tree, or a directed
+graph if you're into that kind of thing. At the root of the graph is `main.js`, the file that you're
+running. Then the leaf nodes of that graph are all the files that don't import anything, they just
+export. When you update a file's content anywhere in that graph you trace downwards towards the root
+module, and all the modules that you touched along the way need to be reevaluated. The interesting
+thing is that all the "child" and "cousin" modules haven't actually been changed, so there's no need
+to reevaluate them.
+
+What that means is that you can restart only the parts of your application that have changed,
+without having to restart nodejs. It's just so much faster, you really have to try it.
+
+You can even get real fancy with it and [`accept` individual
+modules](#swappable-middleware-express-koa-etc) so that you don't even have to close the HTTP server
+if you don't want to.
+
+No doubt your application has all kinds of side-effects littered about. Maybe you have a
+`setInterval` or something which runs a job every now and then. You'll need to tell dynohot how to
+clean those up, because otherwise if the module reevaluates itself then you will make a new timer
+each time. For cases like those you can use `import.meta.hot.dispose()`. Take a look at the (API
+reference)[#api-reference] below to get started on that.
+
 
 API REFERENCE
 -------------
@@ -128,6 +170,17 @@ export declare class Hot<Data extends Record<keyof any, unknown>> {
      */
     prune(onPrune: () => Promise<void> | void): void;
 }
+```
+
+
+TYPESCRIPT
+----------
+
+If you use TypeScript you can add the following triple-slash directive to a `*.d.ts` file in your
+project and `import.meta.hot` will be typed correctly.
+
+```ts
+/// <reference types="dynohot/import-meta" />
 ```
 
 
