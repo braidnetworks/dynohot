@@ -102,8 +102,8 @@ if you don't want to.
 No doubt your application has all kinds of side-effects littered about. Maybe you have a
 `setInterval` or something which runs a job every now and then. You'll need to tell dynohot how to
 clean those up, because otherwise if the module reevaluates itself then you will make a new timer
-each time. For cases like those you can use `import.meta.hot.dispose()`. Take a look at the (API
-reference)[#api-reference] below to get started on that.
+each time. For cases like those you can use `import.meta.hot.dispose()`. Take a look at the [API
+reference](#api-reference) below to get started on that.
 
 
 API REFERENCE
