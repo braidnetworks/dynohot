@@ -94,6 +94,28 @@ export function *filter(iterable: Iterable<unknown>, predicate: Predicate<unknow
 }
 
 /**
+ * Intersperses `separator` between every element of an iterable.
+ */
+export function *intersperse<Type, Separator>(iterable: Iterable<Type>, separator: Separator): IterableIterator<Type | Separator> {
+	let first = true;
+	for (const value of iterable) {
+		if (first) {
+			first = false;
+		} else {
+			yield separator;
+		}
+		yield value;
+	}
+}
+
+/**
+ * Eagerly folds the iterable, joining the results with the given separator.
+ */
+export function join(iterable: Iterable<string>, separator = "") {
+	return reduce(intersperse(iterable, separator), "", (accumulator, fragment) => `${accumulator}${fragment}`);
+}
+
+/**
  * Applies a given function to an iterable.
  * @internal
  */

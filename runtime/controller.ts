@@ -1,6 +1,7 @@
 import type { BindingEntry, ExportIndirectEntry, ExportIndirectStarEntry, ExportStarEntry } from "./binding.js";
 import type { LoadedModuleRequestEntry, ModuleBody, ModuleDeclaration } from "./declaration.js";
 import type { AbstractModuleController, ModuleNamespace } from "./module.js";
+import type { Format } from "dynohot/node-loader";
 import assert from "node:assert/strict";
 import Fn from "dynohot/functional";
 import { BindingType } from "./binding.js";
@@ -206,6 +207,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 				const params = new URLSearchParams([
 					[ "url", this.url ],
 					[ "version", String(++this.version) ],
+					[ "format", instance.declaration.format ],
 					...Fn.map(
 						Object.entries(importAssertions),
 						([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
@@ -295,6 +297,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 		body: ModuleBody,
 		meta: ImportMeta | null,
 		usesDynamicImport: boolean,
+		format: Format,
 		importAssertions: Record<string, string>,
 		loadedModules: readonly LoadedModuleRequestEntry[],
 	) {
@@ -314,6 +317,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 		const declaration: ModuleDeclaration = {
 			body,
 			meta,
+			format,
 			importAssertions,
 			usesDynamicImport,
 			loadedModules,

@@ -5,6 +5,7 @@ import { parse, types as t } from "@babel/core";
 import syntaxImportAttributes from "@babel/plugin-syntax-import-attributes";
 import convertSourceMap from "convert-source-map";
 import Fn from "dynohot/functional";
+import { type BindingEntry, BindingType } from "dynohot/runtime/binding";
 import { generate, makeRootPath, traverse } from "./babel-shim.js";
 
 const makeLocalGetter = (localName: string, exportName: string) =>
@@ -14,6 +15,13 @@ const makeLocalGetter = (localName: string, exportName: string) =>
 
 const extractName = (node: t.Identifier | t.StringLiteral) =>
 	t.isStringLiteral(node) ? node.value : node.name;
+
+interface ImportEntry {
+	identifier: string;
+	importSpecifier: string;
+	specifier: string;
+	bindings: BindingEntry[];
+}
 
 export function transformModuleSource(
 	filename: string,
@@ -43,32 +51,57 @@ export function transformModuleSource(
 
 	// Run transformation
 	const path = makeRootPath(file);
-	transformProgram(path, importAssertions);
+	const state = transformProgram(path);
 
 	// Generate new source code from modified AST
 	const result = generate(file, {
 		filename: filename.replace(/(\..+?|)$/, ".hot$1"),
-		// retainLines: true,
+		retainLines: true,
 		sourceMaps: true,
 		// @ts-expect-error
 		inputSourceMap: sourceMap,
 	});
+
+	// Generate source map comment
 	const sourceMapComment = result.map ? convertSourceMap.fromObject(result.map).toComment() : "";
-	return `${result.code}\n${sourceMapComment}\n`;
+
+	// Make import declarations
+	const importRuntime = 'import { acquire } from "hot:runtime";';
+	const imports = Fn.join(Fn.map(
+		state.importDeclarations,
+		declaration =>
+			`import ${declaration.identifier} from ${JSON.stringify(declaration.importSpecifier)};`,
+	), "\n");
+	// `ModuleBody`
+	const body = `{ async: ${state.usesTopLevelAwait}, execute }`;
+	// nb: We omit `import.meta` in the case the module doesn't use it at all. No
+	// telling if this is actually important to the runtime environment but it seemed
+	// important enough to make it into the compartments proposal:
+	// https://github.com/tc39/proposal-compartments/blob/7e60fdbce66ef2d97370007afeb807192c653333/1-static-analysis.md#design-rationales
+	const importMeta = state.usesImportMeta ? "import.meta" : "null";
+	// `LoadedModuleRequestEntry`
+	const requestEntries = `[ ${Fn.join(Fn.map(
+		state.importDeclarations,
+		declaration => {
+			const bindings = JSON.stringify(declaration.bindings);
+			const specifier = JSON.stringify(declaration.specifier);
+			return `{ controller: ${declaration.identifier}, specifier: ${specifier}, bindings: ${bindings} }`;
+		},
+	), ", ")} ]`;
+	const loader = `module().load(${body}, ${importMeta}, ${state.usesDynamicImport}, "module", ${JSON.stringify(importAssertions)}, ${requestEntries});`;
+
+	// Build final module source
+	return `${result.code}\n${sourceMapComment}\n${importRuntime}\n${imports}\n${loader}\n`;
 }
 
-function transformProgram(
-	program: NodePath<t.Program>,
-	importAssertions: Record<string, string>,
-) {
-	const dependencyEntries = t.arrayExpression();
+function transformProgram(program: NodePath<t.Program>) {
 	const exportedGetters = t.objectExpression([]);
-	const importDeclarations: t.ImportDeclaration[] = [];
+	const importDeclarations: ImportEntry[] = [];
 	const importedBindings = new Map<string, {
-		bindings: t.ArrayExpression;
+		bindings: BindingEntry[];
 		exportName: string | null;
 	}>();
-	const specifierToBindings = new Map<string, t.ArrayExpression>();
+	const specifierToBindings = new Map<string, BindingEntry[]>();
 
 	interface ModuleRequestNode {
 		assertions?: t.ImportAttribute[] | null;
@@ -89,20 +122,18 @@ function transformProgram(
 					"with",
 					String(new URLSearchParams([ [ extractName(assertion.key), extractName(assertion.value) ] ])),
 				]),
-		] as Iterable<[ string, string ]>);
-		const controllerSpecifier = `hot:module?${String(params)}`;
-		return specifierToBindings.get(controllerSpecifier) ?? function() {
+		] as [ string, string ][]);
+		const importSpecifier = `hot:module?${String(params)}`;
+		return specifierToBindings.get(importSpecifier) ?? function() {
 			const localName = `_${specifier.replaceAll(/[^A-Za-z0-9_$]/g, "_")}`;
-			const bindings = t.arrayExpression();
-			specifierToBindings.set(controllerSpecifier, bindings);
-			importDeclarations.push(t.importDeclaration(
-				[ t.importDefaultSpecifier(t.identifier(localName)) ],
-				t.stringLiteral(controllerSpecifier)));
-			dependencyEntries.elements.push(t.objectExpression([
-				t.objectProperty(t.identifier("controller"), t.identifier(localName)),
-				t.objectProperty(t.identifier("specifier"), t.stringLiteral(moduleRequest.source.value)),
-				t.objectProperty(t.identifier("bindings"), bindings),
-			]));
+			const bindings: BindingEntry[] = [];
+			specifierToBindings.set(importSpecifier, bindings);
+			importDeclarations.push({
+				bindings,
+				identifier: localName,
+				importSpecifier,
+				specifier,
+			});
 			return bindings;
 		}();
 	};
@@ -118,30 +149,30 @@ function transformProgram(
 			for (const specifier of statement.node.specifiers) {
 				if (t.isImportDefaultSpecifier(specifier)) {
 					importedBindings.set(specifier.local.name, { exportName: "default", bindings });
-					bindings.elements.push(t.objectExpression([
-						t.objectProperty(t.identifier("type"), t.stringLiteral("import")),
-						t.objectProperty(t.identifier("name"), t.stringLiteral("default")),
-						...specifier.local.name === "default" ? [] : [
-							t.objectProperty(t.identifier("as"), t.stringLiteral(specifier.local.name)),
-						],
-					]));
+					bindings.push({
+						type: BindingType.import,
+						name: "default",
+						...specifier.local.name !== "default" && {
+							as: specifier.local.name,
+						},
+					});
 				} else if (t.isImportSpecifier(specifier)) {
 					const exportName = extractName(specifier.imported);
 					importedBindings.set(specifier.local.name, { exportName, bindings });
-					bindings.elements.push(t.objectExpression([
-						t.objectProperty(t.identifier("type"), t.stringLiteral("import")),
-						t.objectProperty(t.identifier("name"), t.stringLiteral(exportName)),
-						...specifier.local.name === exportName ? [] : [
-							t.objectProperty(t.identifier("as"), t.stringLiteral(specifier.local.name)),
-						],
-					]));
+					bindings.push({
+						type: BindingType.import,
+						name: exportName,
+						...specifier.local.name !== "default" && {
+							as: specifier.local.name,
+						},
+					});
 				} else {
 					assert(t.isImportNamespaceSpecifier(specifier));
 					importedBindings.set(specifier.local.name, { exportName: null, bindings });
-					bindings.elements.push(t.objectExpression([
-						t.objectProperty(t.identifier("type"), t.stringLiteral("importStar")),
-						t.objectProperty(t.identifier("as"), t.stringLiteral(specifier.local.name)),
-					]));
+					bindings.push({
+						type: BindingType.importStar,
+						as: specifier.local.name,
+					});
 				}
 			}
 			statement.remove();
@@ -153,9 +184,7 @@ function transformProgram(
 		if (statement.isExportAllDeclaration()) {
 			// export * from "specifier";
 			const bindings = acquireModuleRequestBindings(statement.node);
-			bindings.elements.push(t.objectExpression([
-				t.objectProperty(t.identifier("type"), t.stringLiteral("exportStar")),
-			]));
+			bindings.push({ type: BindingType.exportStar });
 			statement.remove();
 
 		} else if (statement.isExportDefaultDeclaration()) {
@@ -190,18 +219,18 @@ function transformProgram(
 					if (indirectExport.exportName === null) {
 						// import * as foo from "bar";
 						// export default foo;
-						indirectExport.bindings.elements.push(t.objectExpression([
-							t.objectProperty(t.identifier("type"), t.stringLiteral("indirectStarExport")),
-							t.objectProperty(t.identifier("as"), t.stringLiteral("default")),
-						]));
+						indirectExport.bindings.push({
+							type: BindingType.indirectStarExport,
+							as: "default",
+						});
 					} else {
 						// import foo from "bar";
 						// export default foo;
-						indirectExport.bindings.elements.push(t.objectExpression([
-							t.objectProperty(t.identifier("type"), t.stringLiteral("indirectExport")),
-							t.objectProperty(t.identifier("name"), t.stringLiteral(indirectExport.exportName)),
-							t.objectProperty(t.identifier("as"), t.stringLiteral("default")),
-						]));
+						indirectExport.bindings.push({
+							type: BindingType.indirectExport,
+							name: indirectExport.exportName,
+							as: "default",
+						});
 					}
 					statement.remove();
 				}
@@ -216,21 +245,21 @@ function transformProgram(
 					if (t.isExportSpecifier(specifier)) {
 						const { exported, local } = specifier;
 						const exportedName = extractName(exported);
-						bindings.elements.push(t.objectExpression([
-							t.objectProperty(t.identifier("type"), t.stringLiteral("indirectExport")),
-							t.objectProperty(t.identifier("name"), t.stringLiteral(local.name)),
-							...exportedName === local.name ? [] : [
-								t.objectProperty(t.identifier("as"), t.stringLiteral(exportedName)),
-							],
-						]));
+						bindings.push({
+							type: BindingType.indirectExport,
+							name: local.name,
+							...exportedName !== local.name && {
+								as: exportedName,
+							},
+						});
 					} else {
 						assert(t.isExportNamespaceSpecifier(specifier));
 						const { exported } = specifier;
 						const exportedName = extractName(exported);
-						bindings.elements.push(t.objectExpression([
-							t.objectProperty(t.identifier("type"), t.stringLiteral("indirectStarExport")),
-							t.objectProperty(t.identifier("as"), t.stringLiteral(exportedName)),
-						]));
+						bindings.push({
+							type: BindingType.indirectStarExport,
+							as: exportedName,
+						});
 					}
 				}
 				statement.remove();
@@ -248,20 +277,20 @@ function transformProgram(
 					} else if (indirectExport.exportName === null) {
 						// import * as foo from "bar";
 						// export { foo };
-						indirectExport.bindings.elements.push(t.objectExpression([
-							t.objectProperty(t.identifier("type"), t.stringLiteral("indirectStarExport")),
-							t.objectProperty(t.identifier("as"), t.stringLiteral(exportName)),
-						]));
+						indirectExport.bindings.push({
+							type: BindingType.indirectStarExport,
+							as: exportName,
+						});
 					} else {
 						// import foo from "bar";
 						// export { foo };
-						indirectExport.bindings.elements.push(t.objectExpression([
-							t.objectProperty(t.identifier("type"), t.stringLiteral("indirectExport")),
-							t.objectProperty(t.identifier("name"), t.stringLiteral(indirectExport.exportName)),
-							...exportName === indirectExport.exportName ? [] : [
-								t.objectProperty(t.identifier("as"), t.stringLiteral(exportName)),
-							],
-						]));
+						indirectExport.bindings.push({
+							type: BindingType.indirectExport,
+							name: indirectExport.exportName,
+							...exportName !== indirectExport.exportName && {
+								as: exportName,
+							},
+						});
 					}
 				}
 			}
@@ -308,10 +337,6 @@ function transformProgram(
 	// Finally, assemble a new body with the re-written imports, import descriptors, runtime-defined
 	// default export, and module body generator
 	program.node.body = [
-		t.importDeclaration(
-			[ t.importSpecifier(t.identifier("acquire"), t.identifier("acquire")) ],
-			t.stringLiteral("hot:runtime")),
-		...importDeclarations,
 		t.functionDeclaration(
 			t.identifier("execute"),
 			[
@@ -344,29 +369,14 @@ function transformProgram(
 			]),
 			true,
 			visitorState.usesTopLevelAwait),
-		t.expressionStatement(t.callExpression(
-			t.memberExpression(
-				t.callExpression(t.identifier("module"), []),
-				t.identifier("load")),
-			[
-				t.objectExpression([
-					t.objectProperty(t.identifier("async"), t.booleanLiteral(visitorState.usesTopLevelAwait)),
-					t.objectProperty(t.identifier("execute"), t.identifier("execute")),
-				]),
-				// nb: We omit `import.meta` in the case the module doesn't use it at all. No
-				// telling if this is actually important to the runtime environment but it seemed
-				// important enough to make it into the compartments proposal:
-				// https://github.com/tc39/proposal-compartments/blob/7e60fdbce66ef2d97370007afeb807192c653333/1-static-analysis.md#design-rationales
-				visitorState.usesImportMeta
-					? t.metaProperty(t.identifier("import"), t.identifier("meta"))
-					: t.nullLiteral(),
-				t.booleanLiteral(visitorState.usesDynamicImport),
-				t.objectExpression(Object.entries(importAssertions).map(
-					([ key, value ]) => t.objectProperty(t.identifier(key), t.stringLiteral(value)))),
-				dependencyEntries,
-			],
-		)),
 	];
+
+	return {
+		importDeclarations,
+		usesDynamicImport: visitorState.usesDynamicImport,
+		usesImportMeta: visitorState.usesImportMeta,
+		usesTopLevelAwait: visitorState.usesTopLevelAwait,
+	};
 }
 
 interface VisitorState {

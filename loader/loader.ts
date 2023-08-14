@@ -1,4 +1,4 @@
-import type { NodeLoad, NodeResolve } from "./node-loader.js";
+import type { Format, NodeLoad, NodeResolve } from "./node-loader.js";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import fs from "node:fs/promises";
@@ -46,7 +46,7 @@ function* execute() {
 export default function module() {
 	return acquire(${JSON.stringify(url)}, execute);
 }
-module().load({ async: false, execute }, null, false, ${JSON.stringify(importAssertions)}, []);\n`;
+module().load({ async: false, execute }, null, false, "json", ${JSON.stringify(importAssertions)}, []);\n`;
 
 const makeReloadableModule = async (url: string, source: string, importAssertions: ImportAssertions) => {
 	const sourceMap = await async function() {
@@ -176,6 +176,8 @@ export const resolve: NodeResolve = (specifier, context, nextResolve) => {
 		assert(resolution !== null);
 		const version = resolutionURL.searchParams.get("version");
 		assert(version !== null);
+		const format = resolutionURL.searchParams.get("format") as Format | null;
+		assert(format !== null);
 		const params = new URLSearchParams([
 			[ "url", resolution ],
 			[ "version", version ],
@@ -183,7 +185,7 @@ export const resolve: NodeResolve = (specifier, context, nextResolve) => {
 		]);
 		return {
 			shortCircuit: true,
-			format: "module",
+			format,
 			url: `hot:module?${String(params)}`,
 		};
 	}
@@ -234,17 +236,12 @@ export const load: NodeLoad = (urlString, context, nextLoad) => {
 				const importAssertions = extractImportAssertions(url.searchParams);
 				const result = await nextLoad(moduleURL, {
 					...context,
-					// Kind of a hack.. a proper solution would involve passing along `format` to
-					// the underlying controller so that `hot:reload` knows what to request.
-					...importAssertions.type === "json" && { format: "json" },
 					importAssertions,
 				});
 				if (!ignorePattern.test(moduleURL)) {
 					if (result.format === "module") {
-						return {
-							...result,
-							source: await makeReloadableModule(moduleURL, asString(result.source), importAssertions),
-						};
+						const source = await makeReloadableModule(moduleURL, asString(result.source), importAssertions);
+						return { ...result, source };
 					} else if (result.format === "json") {
 						return {
 							...result,

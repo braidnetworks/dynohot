@@ -12,7 +12,7 @@ interface ResolveContext {
 	parentURL: string | undefined;
 }
 
-type Format = "builtin" | "commonjs" | "json" | "module" | "wasm";
+export type Format = "builtin" | "commonjs" | "json" | "module" | "wasm";
 
 interface ResolveResult {
 	/** A hint to the load hook (it might be ignored) */
