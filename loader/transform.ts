@@ -29,25 +29,30 @@ export function transformModuleSource(
 	sourceText: string,
 	sourceMap: unknown,
 ) {
-	const file = parse(sourceText, {
-		babelrc: false,
-		configFile: false,
-		filename,
-		retainLines: true,
-		sourceType: "module",
-		plugins: [
-			[ syntaxImportAttributes, { deprecatedAssertSyntax: true } ],
-		],
-	});
-	assert(file);
-
-	// nb: Babel has uncharacteristically poor hygiene here and assigns `Error.prepareStackTrace`
-	// when you invoke `parse` and doesn't even bother to put it back. This causes nodejs's source
-	// map feature to bail out and show plain source files.
-	// In nodejs v20.0+ loaders run in a separate context, so it isn't an issue there, but otherwise
-	// source maps just won't work.
-	// https://github.com/babel/babel/blob/74b5ac21d0fb516ecc8d8375cc75b4446b6c9735/packages/babel-core/src/errors/rewrite-stack-trace.ts#L140
-	delete Error.prepareStackTrace;
+	const file = function() {
+		try {
+			const file = parse(sourceText, {
+				babelrc: false,
+				configFile: false,
+				filename,
+				retainLines: true,
+				sourceType: "module",
+				plugins: [
+					[ syntaxImportAttributes, { deprecatedAssertSyntax: true } ],
+				],
+			});
+			assert.ok(file);
+			return file;
+		} finally {
+			// nb: Babel has uncharacteristically poor hygiene here and assigns `Error.prepareStackTrace`
+			// when you invoke `parse` and doesn't even bother to put it back. This causes nodejs's source
+			// map feature to bail out and show plain source files.
+			// In nodejs v20.0+ loaders run in a separate context, so it isn't an issue there, but otherwise
+			// source maps just won't work.
+			// https://github.com/babel/babel/blob/74b5ac21d0fb516ecc8d8375cc75b4446b6c9735/packages/babel-core/src/errors/rewrite-stack-trace.ts#L140
+			delete Error.prepareStackTrace;
+		}
+	}();
 
 	// Run transformation
 	const path = makeRootPath(file);
