@@ -66,12 +66,12 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 
 	#acceptsSelf: ((self: () => ModuleNamespace) => MaybePromise<void>)[] = [];
 	#declined = false;
-	#dispose: ((data: Data) => Promise<void> | void)[] = [];
+	// dispose & prune
+	#destructors: ((data: Data, prune?: boolean) => Promise<void> | void)[] = [];
 	#dynamicImports = new Set<ModuleController>();
 	#instance: ReloadableModuleInstance;
 	#invalidated = false;
 	#module;
-	#prune: (() => Promise<void> | void)[] = [];
 	#usesDynamicImport;
 
 	constructor(
@@ -98,7 +98,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 			const data = {};
 			const hot = selectHot(instance);
 			if (hot !== null) {
-				for (const callback of Fn.reverse(hot.#dispose)) {
+				for (const callback of Fn.reverse(hot.#destructors)) {
 					await callback(data);
 				}
 			}
@@ -148,10 +148,11 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 			return hot !== null && hot.#invalidated;
 		};
 		prune = async instance => {
+			const data = {};
 			const hot = selectHot(instance);
 			if (hot !== null) {
-				for (const callback of Fn.reverse(hot.#prune)) {
-					await callback();
+				for (const callback of Fn.reverse(hot.#destructors)) {
+					await callback(data, true);
 				}
 			}
 		};
@@ -272,8 +273,8 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 	 * will be passed to the next instance via `import.meta.hot.data`.
 	 */
 	dispose(onDispose: (data: Data) => Promise<void> | void) {
-		assert(typeof onDispose === "function");
-		this.#dispose.push(onDispose);
+		assert.ok(typeof onDispose === "function");
+		this.#destructors.push(data => onDispose(data));
 	}
 
 	/**
@@ -290,7 +291,11 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 	 * graph entirely.
 	 */
 	prune(onPrune: () => Promise<void> | void) {
-		this.#prune.push(onPrune);
+		this.#destructors.push((data, prune) => {
+			if (prune) {
+				return onPrune();
+			}
+		});
 	}
 }
 
