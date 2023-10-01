@@ -24,6 +24,7 @@ export function somePredicate(predicates: Iterable<Predicate<unknown> | Predicat
 	return reduce(
 		rest,
 		head ?? (() => false),
+		// eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
 		(predicate, next) => value => predicate(value) || next(value));
 }
 
@@ -87,6 +88,7 @@ export function filter<Type>(
 
 export function *filter(iterable: Iterable<unknown>, predicate: Predicate<unknown> = truthy) {
 	for (const value of iterable) {
+		// eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
 		if (predicate(value)) {
 			yield value;
 		}

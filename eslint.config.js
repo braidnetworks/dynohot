@@ -5,6 +5,8 @@ import typeScriptParser from "@typescript-eslint/parser";
 import importPlugin from "eslint-plugin-import";
 import globals from "globals";
 
+const nodeModules = Object.keys(process.binding("natives")).filter(name => !/^(?:_|internal\/)/.test(name));
+
 // @ts-check
 /** @typedef {import("eslint").Linter.FlatConfig} FlatConfig */
 /** @typedef {import("eslint").Linter.RulesRecord} RulesRecord */
@@ -15,7 +17,7 @@ const rules = {
 	"array-bracket-newline": [ "warn", "consistent" ],
 	"array-bracket-spacing": [ "warn", "always" ],
 	"arrow-body-style": "warn",
-	"array-callback-return": "warn",
+	"array-callback-return": [ "warn", { allowVoid: true } ],
 	"arrow-parens": [ "warn", "as-needed" ],
 	"arrow-spacing": "warn",
 	"block-scoped-var": "warn",
@@ -47,6 +49,7 @@ const rules = {
 	"no-constant-binary-expression": "warn",
 	"no-constant-condition": [ "warn", { checkLoops: false } ],
 	"no-constructor-return": "error",
+	"no-control-regex": "off",
 	"no-empty": [ "warn", { allowEmptyCatch: true } ],
 	"no-eval": "warn",
 	"no-extend-native": "warn",
@@ -75,13 +78,18 @@ const rules = {
 	"no-negated-condition": "warn",
 	"no-negated-in-lhs": "warn",
 	"no-new-func": "warn",
-	"no-new-object": "warn",
 	"no-new-wrappers": "warn",
 	"no-new": "warn",
 	"no-octal-escape": "warn",
-	"no-param-reassign": "warn",
-	"no-promise-executor-return": "warn",
-	"no-return-await": "warn",
+	"no-promise-executor-return": [ "warn", { allowVoid: true } ],
+	"no-restricted-imports": [ "warn", {
+		paths: [
+			...nodeModules.map(name => ({
+				name,
+				message: `Please use 'node:${name}' instead.`,
+			})),
+		],
+	} ],
 	"no-script-url": "warn",
 	"no-self-compare": "warn",
 	"no-sequences": "warn",
@@ -195,10 +203,6 @@ const typeScriptRules = acceptTypeScriptRules({
 	// Obviated by ts(2845)
 	"use-isnan": "off",
 
-	// Turn down the strictness
-	"@typescript-eslint/no-explicit-any": "off",
-	"@typescript-eslint/no-non-null-assertion": "off",
-
 	// TypeScript rules which supersede an eslint rule
 	"@typescript-eslint/brace-style": [ "warn", "1tbs", { allowSingleLine: true } ],
 	"@typescript-eslint/comma-dangle": [ "warn", "always-multiline" ],
@@ -245,6 +249,10 @@ const typeScriptRules = acceptTypeScriptRules({
 	} ],
 	"@typescript-eslint/space-infix-ops": "warn",
 
+	// Consider [strictness]
+	"@typescript-eslint/no-explicit-any": "off",
+	"@typescript-eslint/no-non-null-assertion": "off",
+
 	// TypeScript-exclusive
 	"@typescript-eslint/array-type": "warn",
 	"@typescript-eslint/ban-ts-comment": "off",
@@ -277,10 +285,16 @@ const typeScriptRules = acceptTypeScriptRules({
 	"@typescript-eslint/prefer-ts-expect-error": "warn",
 	"@typescript-eslint/type-annotation-spacing": "warn",
 	"@typescript-eslint/unified-signatures": "warn",
+
+	"import/consistent-type-specifier-style": [ "warn", "prefer-top-level" ],
 });
 
 /** @type {RulesRecord} */
 const typedTypeScriptRules = acceptTypeScriptRules({
+	// Prevents fixing `@typescript-eslint/strict-boolean-expressions` errors with `!Boolean(...)`.
+	"no-extra-boolean-cast": "off",
+
+	// Consider [strictness]:
 	"@typescript-eslint/no-explicit-any": "off",
 	"@typescript-eslint/no-unnecessary-type-assertion": "off",
 	"@typescript-eslint/no-unsafe-argument": "off",
@@ -324,6 +338,19 @@ const typedTypeScriptRules = acceptTypeScriptRules({
 		allowNumber: true,
 	} ],
 	"@typescript-eslint/return-await": "warn",
+	"@typescript-eslint/strict-boolean-expressions": [ "warn", {
+		// [default: true] - Documentation agrees these are safe. One actually might consider
+		// *disabling* these even though they're safe.
+		allowString: true,
+		allowNumber: true,
+		// [default: true] - Super duper safe.
+		allowNullableObject: true,
+		// [default: false] - "Unsafe" per the documentation, but seems legit in practice.
+		allowNullableBoolean: true,
+		// [default: false] - Ok if you are already walking with the devil then eslint can't help
+		// you.
+		allowAny: true,
+	} ],
 	"@typescript-eslint/switch-exhaustiveness-check": "warn",
 });
 

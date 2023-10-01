@@ -1,8 +1,9 @@
 import type { ReloadableModuleInstance } from "./instance.js";
+import type { ModuleController } from "./module.js";
 import assert from "node:assert/strict";
 import Fn from "dynohot/functional";
 import { ReloadableModuleController } from "./controller.js";
-import { type ModuleController, ModuleStatus } from "./module.js";
+import { ModuleStatus } from "./module.js";
 import { makeRelative, plural } from "./utility.js";
 
 // Prior art:

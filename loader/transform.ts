@@ -1,11 +1,12 @@
 import type { NodePath, Visitor } from "@babel/traverse";
+import type { BindingEntry } from "dynohot/runtime/binding";
 import assert from "node:assert/strict";
 import { parse, types as t } from "@babel/core";
 // @ts-expect-error
 import syntaxImportAttributes from "@babel/plugin-syntax-import-attributes";
 import convertSourceMap from "convert-source-map";
 import Fn from "dynohot/functional";
-import { type BindingEntry, BindingType } from "dynohot/runtime/binding";
+import { BindingType } from "dynohot/runtime/binding";
 import { generate, makeRootPath, traverse } from "./babel-shim.js";
 
 const makeLocalGetter = (localName: string, exportName: string) =>
