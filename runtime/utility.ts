@@ -68,11 +68,11 @@ export const evictModule = function() {
 	try {
 		const require = createRequire(import.meta.url);
 		const loader = require("internal/process/esm_loader");
-		const { moduleMap } = loader.esmLoader;
-		if (moduleMap) {
+		const { loadCache } = loader.esmLoader;
+		if (loadCache) {
 			return (url: string) => {
-				if (moduleMap.has(url)) {
-					moduleMap.delete(url);
+				if (loadCache.has(url)) {
+					loadCache.delete(url);
 					return true;
 				} else {
 					return false;
