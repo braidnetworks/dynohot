@@ -1,6 +1,6 @@
 import type { NodePath, Visitor } from "@babel/traverse";
 import type { BindingEntry } from "dynohot/runtime/binding";
-import assert from "node:assert/strict";
+import * as assert from "node:assert/strict";
 import { parse, types as t } from "@babel/core";
 // @ts-expect-error
 import syntaxImportAttributes from "@babel/plugin-syntax-import-attributes";
@@ -116,7 +116,7 @@ function transformProgram(program: NodePath<t.Program>) {
 	}
 
 	const acquireModuleRequestBindings = (moduleRequest: ModuleRequestNode) => {
-		assert(moduleRequest.source);
+		assert.ok(moduleRequest.source);
 		// Convert import assertions into `with` URL search parameters. That way the underlying
 		// loader can pass forward the assertions, but the runtime imports will be plain.
 		const attributes = moduleRequest.attributes ?? moduleRequest.assertions ?? [];
@@ -173,7 +173,7 @@ function transformProgram(program: NodePath<t.Program>) {
 						},
 					});
 				} else {
-					assert(t.isImportNamespaceSpecifier(specifier));
+					assert.ok(t.isImportNamespaceSpecifier(specifier));
 					importedBindings.set(specifier.local.name, { exportName: null, bindings });
 					bindings.push({
 						type: BindingType.importStar,
@@ -212,7 +212,7 @@ function transformProgram(program: NodePath<t.Program>) {
 				if (indirectExport === undefined) {
 					// This is an export by value. Care must be taken to avoid exporting a live
 					// binding to an underlying expression.
-					assert(declaration.isExpression());
+					assert.ok(declaration.isExpression());
 					const id = program.scope.generateUid("default");
 					const next = statement.replaceWith(
 						t.variableDeclaration("const", [
@@ -245,7 +245,7 @@ function transformProgram(program: NodePath<t.Program>) {
 		} else if (statement.isExportNamedDeclaration()) {
 			if (statement.node.source) {
 				// export ... from "specifier";
-				assert(!statement.node.declaration);
+				assert.ok(!statement.node.declaration);
 				const bindings = acquireModuleRequestBindings(statement.node);
 				for (const specifier of statement.node.specifiers) {
 					if (t.isExportSpecifier(specifier)) {
@@ -259,7 +259,7 @@ function transformProgram(program: NodePath<t.Program>) {
 							},
 						});
 					} else {
-						assert(t.isExportNamespaceSpecifier(specifier));
+						assert.ok(t.isExportNamespaceSpecifier(specifier));
 						const { exported } = specifier;
 						const exportedName = extractName(exported);
 						bindings.push({

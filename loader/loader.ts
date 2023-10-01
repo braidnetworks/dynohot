@@ -1,7 +1,7 @@
 import type { Format, NodeLoad, NodeResolve } from "./node-loader.js";
-import assert from "node:assert/strict";
+import * as assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
-import fs from "node:fs/promises";
+import * as fs from "node:fs/promises";
 import convertSourceMap from "convert-source-map";
 import Fn from "dynohot/functional";
 import { transformModuleSource } from "./transform.js";
@@ -119,13 +119,13 @@ export const resolve: NodeResolve = (specifier, context, nextResolve) => {
 	}
 	// [static imports] Convert "hot:module?specifier=..." to "hot:module?url=..."
 	if (specifier.startsWith("hot:module?")) {
-		assert(context.parentURL.startsWith("hot:main?") || context.parentURL.startsWith("hot:module?"));
+		assert.ok(context.parentURL.startsWith("hot:main?") || context.parentURL.startsWith("hot:module?"));
 		const parentURL = new URL(context.parentURL);
 		const parentModuleURL = parentURL.searchParams.get("url");
-		assert(parentModuleURL !== null);
+		assert.ok(parentModuleURL !== null);
 		const resolutionURL = new URL(specifier);
 		const resolutionSpecifier = resolutionURL.searchParams.get("specifier");
-		assert(resolutionSpecifier !== null);
+		assert.ok(resolutionSpecifier !== null);
 		const importAssertions = extractImportAssertions(resolutionURL.searchParams);
 		return maybeThen(
 			nextResolve(resolutionSpecifier, {
@@ -148,9 +148,9 @@ export const resolve: NodeResolve = (specifier, context, nextResolve) => {
 	} else if (specifier.startsWith("hot:import?")) {
 		const resolutionURL = new URL(specifier);
 		const resolutionSpecifier = resolutionURL.searchParams.get("specifier");
-		assert(resolutionSpecifier !== null);
+		assert.ok(resolutionSpecifier !== null);
 		const parentModuleURL = resolutionURL.searchParams.get("parent");
-		assert(parentModuleURL !== null);
+		assert.ok(parentModuleURL !== null);
 		const importAssertions = extractImportAssertions(resolutionURL.searchParams);
 		return maybeThen(
 			nextResolve(resolutionSpecifier, {
@@ -173,11 +173,11 @@ export const resolve: NodeResolve = (specifier, context, nextResolve) => {
 	} else if (specifier.startsWith("hot:reload?")) {
 		const resolutionURL = new URL(specifier);
 		const resolution = resolutionURL.searchParams.get("url");
-		assert(resolution !== null);
+		assert.ok(resolution !== null);
 		const version = resolutionURL.searchParams.get("version");
-		assert(version !== null);
+		assert.ok(version !== null);
 		const format = resolutionURL.searchParams.get("format") as Format | null;
-		assert(format !== null);
+		assert.ok(format !== null);
 		const params = new URLSearchParams([
 			[ "url", resolution ],
 			[ "version", version ],
@@ -209,7 +209,7 @@ export const load: NodeLoad = (urlString, context, nextLoad) => {
 			case "adapter": {
 				const importAssertions = extractImportAssertions(url.searchParams);
 				const moduleURL = url.searchParams.get("url");
-				assert(moduleURL);
+				assert.ok(moduleURL);
 				return {
 					shortCircuit: true,
 					format: "module",
@@ -219,7 +219,7 @@ export const load: NodeLoad = (urlString, context, nextLoad) => {
 
 			case "main": {
 				const moduleURL = url.searchParams.get("url");
-				assert(moduleURL);
+				assert.ok(moduleURL);
 				const controllerSpecifier = `hot:module?specifier=${encodeURIComponent(moduleURL)}`;
 				return {
 					shortCircuit: true,
@@ -232,7 +232,7 @@ export const load: NodeLoad = (urlString, context, nextLoad) => {
 
 			case "module": return async function() {
 				const moduleURL = url.searchParams.get("url");
-				assert(moduleURL);
+				assert.ok(moduleURL);
 				const importAssertions = extractImportAssertions(url.searchParams);
 				const result = await nextLoad(moduleURL, {
 					...context,

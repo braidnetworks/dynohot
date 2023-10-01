@@ -1,4 +1,4 @@
-import assert from "node:assert";
+import * as assert from "node:assert";
 import { createRequire } from "node:module";
 import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,7 +44,7 @@ export function debounceTimer<Result>(ms: number, fn: () => MaybePromise<Result>
 		}
 		timer = setTimeout(() => {
 			void async function() {
-				assert(completion !== undefined);
+				assert.ok(completion !== undefined);
 				try {
 					completion.resolve(await fn());
 					timer = undefined;

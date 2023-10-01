@@ -1,5 +1,5 @@
 import type { Context, SourceTextModuleOptions } from "node:vm";
-import assert from "node:assert/strict";
+import * as assert from "node:assert/strict";
 import { SourceTextModule, createContext } from "node:vm";
 import * as jest from "@jest/globals";
 import { transformModuleSource } from "../../loader/transform.js";
@@ -49,12 +49,12 @@ export class TestModule {
 	}
 
 	get global() {
-		assert(this.environment !== undefined);
+		assert.ok(this.environment !== undefined);
 		return this.environment.context;
 	}
 
 	get namespace() {
-		assert(this.vm !== undefined);
+		assert.ok(this.vm !== undefined);
 		const controller = this.vm.namespace.default();
 		const instance = controller.select();
 		return instance.moduleNamespace()();
@@ -76,11 +76,11 @@ export class TestModule {
 	}
 
 	async releaseUpdate() {
-		assert(this.vm !== undefined);
-		assert(this.environment !== undefined);
+		assert.ok(this.vm !== undefined);
+		assert.ok(this.environment !== undefined);
 		const updates = this.environment.pending.splice(0);
 		for (const update of updates) {
-			assert(update.vm !== undefined);
+			assert.ok(update.vm !== undefined);
 			update.vm = undefined;
 			update.instantiate(this.environment);
 			await update.linkAndEvaluate();
@@ -89,7 +89,7 @@ export class TestModule {
 	}
 
 	update(source?: () => string) {
-		assert(this.environment !== undefined);
+		assert.ok(this.environment !== undefined);
 		if (source) {
 			this.source = source;
 		}
@@ -102,7 +102,7 @@ export class TestModule {
 
 	private instantiate(environment: Environment): HotInstanceSourceModule {
 		if (this.vm === undefined) {
-			assert(this.environment === undefined || this.environment === environment);
+			assert.ok(this.environment === undefined || this.environment === environment);
 			this.environment = environment;
 			const source =
 				transformModuleSource(this.url, {}, this.source(), undefined) +
@@ -118,14 +118,14 @@ export class TestModule {
 				},
 			});
 		} else {
-			assert(this.environment === environment);
+			assert.ok(this.environment === environment);
 			return this.vm;
 		}
 	}
 
 	private async linkAndEvaluate() {
-		assert(this.environment !== undefined);
-		assert(this.vm !== undefined);
+		assert.ok(this.environment !== undefined);
+		assert.ok(this.vm !== undefined);
 		if (this.vm.status === "unlinked") {
 			await this.vm.link(TestModule.link.bind(undefined, this.environment));
 			await this.vm.evaluate();
@@ -155,9 +155,9 @@ export class TestModule {
 				if (specifier.startsWith("hot:module?")) {
 					const url = new URL(specifier);
 					const moduleURL = url.searchParams.get("specifier");
-					assert(moduleURL !== null);
+					assert.ok(moduleURL !== null);
 					const module = modules.get(moduleURL);
-					assert(module !== undefined);
+					assert.ok(module !== undefined);
 					return module.instantiate(environment);
 				} else {
 					throw new Error(`Unexpected specifier: ${specifier}`);
@@ -174,9 +174,9 @@ export class TestModule {
 				if (specifier.startsWith("hot:import?")) {
 					const url = new URL(specifier);
 					const moduleURL = url.searchParams.get("specifier");
-					assert(moduleURL !== null);
+					assert.ok(moduleURL !== null);
 					const module = modules.get(moduleURL);
-					assert(module !== undefined);
+					assert.ok(module !== undefined);
 					const vm = module.instantiate(environment);
 					await module.linkAndEvaluate();
 					return vm;

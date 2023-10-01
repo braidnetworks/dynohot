@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+import * as assert from "node:assert/strict";
 import Fn from "dynohot/functional";
 
 type NotPromiseLike =
@@ -41,7 +41,7 @@ export const makeAcquireVisitIndex = function() {
 		let lock = false;
 		let currentVisitIndex = 0;
 		return () => {
-			assert(!lock);
+			assert.ok(!lock);
 			lock = true;
 			const release = () => { lock = false; };
 			return [ release, ++currentVisitIndex ] as const;
@@ -77,7 +77,7 @@ export function traverseDepthFirst<
 ): Join {
 	const expect = (node: Node) => {
 		const state = peek(node);
-		assert(state.visitIndex === visitIndex);
+		assert.ok(state.visitIndex === visitIndex);
 		return state as TraversalState<Result>;
 	};
 	const inner = (node: Node): CyclicState<Result> => {
@@ -122,7 +122,7 @@ export function traverseDepthFirst<
 			}
 		}();
 		// Join cyclic nodes
-		assert(state.ancestorIndex <= state.index);
+		assert.ok(state.ancestorIndex <= state.index);
 		if (state.ancestorIndex === state.index) {
 			const cycleNodes = stack.splice(stackIndex);
 			cycleNodes.reverse();
@@ -130,7 +130,7 @@ export function traverseDepthFirst<
 			let hasPromise = false as boolean;
 			const cyclicForwardResults = cycleNodes.map(node => {
 				const { state: { forwardResults } } = expect(node);
-				assert(forwardResults !== undefined);
+				assert.ok(forwardResults !== undefined);
 				if (forwardResults.sync) {
 					return forwardResults.resolution;
 				} else {
@@ -203,7 +203,7 @@ export function traverseDepthFirst<
 	const stack: Node[] = [];
 	try {
 		const { result } = inner(root);
-		assert(result !== undefined);
+		assert.ok(result !== undefined);
 		if (result.sync) {
 			return result.resolution.value as Join;
 		} else {

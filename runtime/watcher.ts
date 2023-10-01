@@ -1,5 +1,5 @@
-import fs from "node:fs";
-import fsPromises from "node:fs/promises";
+import * as fs from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { debounceAsync } from "./utility.js";

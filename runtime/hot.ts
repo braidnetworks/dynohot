@@ -1,6 +1,6 @@
 import type { ReloadableModuleInstance } from "./instance.js";
 import type { ModuleController } from "./module.js";
-import assert from "node:assert/strict";
+import * as assert from "node:assert/strict";
 import Fn from "dynohot/functional";
 import { ReloadableModuleController } from "./controller.js";
 import { ModuleStatus } from "./module.js";
@@ -48,7 +48,7 @@ type LocalModuleEntry = {
 };
 
 function selectHot(instance: ReloadableModuleInstance) {
-	assert(instance.state.status !== ModuleStatus.new);
+	assert.ok(instance.state.status !== ModuleStatus.new);
 	return instance.state.environment.hot;
 }
 
@@ -227,7 +227,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 	) {
 		if (typeof arg1 === "string") {
 			const callback = arg2 as ((dependency: ModuleNamespace) => Promise<void> | void) | undefined;
-			assert(callback === undefined || typeof callback === "function");
+			assert.ok(callback === undefined || typeof callback === "function");
 			this.accept([ arg1 ], async modules => {
 				await callback?.(modules[0]);
 			});
@@ -241,7 +241,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 				}
 			});
 			const callback = arg2 as ((dependency: readonly ModuleNamespace[]) => Promise<void> | void) | undefined;
-			assert(callback === undefined || typeof callback === "function");
+			assert.ok(callback === undefined || typeof callback === "function");
 			for (const [ ii, descriptor ] of localEntries.entries()) {
 				if (!descriptor.found) {
 					if (!this.#usesDynamicImport) {

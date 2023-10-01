@@ -2,7 +2,7 @@ import type { BindingEntry, ExportIndirectEntry, ExportIndirectStarEntry, Export
 import type { LoadedModuleRequestEntry, ModuleBody, ModuleDeclaration } from "./declaration.js";
 import type { AbstractModuleController, ModuleNamespace } from "./module.js";
 import type { Format } from "dynohot/node-loader";
-import assert from "node:assert/strict";
+import * as assert from "node:assert/strict";
 import Fn from "dynohot/functional";
 import { BindingType } from "./binding.js";
 import { dispose, isAccepted, isAcceptedSelf, isDeclined, isInvalidated, prune, tryAccept, tryAcceptSelf } from "./hot.js";
@@ -202,7 +202,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 		watcher.watch(this.url, () => {
 			void (async () => {
 				const instance = this.staging ?? this.current;
-				assert(instance !== undefined);
+				assert.ok(instance !== undefined);
 				const { importAssertions } = instance.declaration;
 				const params = new URLSearchParams([
 					[ "url", this.url ],
@@ -347,7 +347,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 
 	select(select = ReloadableModuleController.selectCurrent) {
 		const instance = select(this);
-		assert(instance !== undefined);
+		assert.ok(instance !== undefined);
 		return instance;
 	}
 
@@ -645,7 +645,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 					const withRollback = iterateWithRollback(cycleNodes, nodes => {
 						for (const node of nodes) {
 							const current = node.select();
-							assert(current.state.status === ModuleStatus.evaluated);
+							assert.ok(current.state.status === ModuleStatus.evaluated);
 							if (current.state.evaluationError !== undefined) {
 								node.current = node.previous;
 							}
@@ -709,7 +709,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 			// Dispose old modules
 			const currentControllers = new Set(function*(that) {
 				for (const node of that.traverse()) {
-					assert(node.pending === undefined);
+					assert.ok(node.pending === undefined);
 					node.previous = undefined;
 					yield node;
 				}

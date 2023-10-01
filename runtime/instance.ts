@@ -2,7 +2,7 @@ import type { ModuleBodyScope, ModuleDeclaration } from "./declaration.js";
 import type { Data } from "./hot.js";
 import type { AbstractModuleInstance, ModuleController, ModuleExports, Resolution, SelectModuleInstance } from "./module.js";
 import type { WithResolvers } from "./utility.js";
-import assert from "node:assert/strict";
+import * as assert from "node:assert/strict";
 import Fn from "dynohot/functional";
 import { BindingType } from "./binding.js";
 import { ReloadableModuleController } from "./controller.js";
@@ -120,7 +120,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 				const accept = (value: ModuleBodyScope) => { scope = value; };
 				const iterator = this.declaration.body.execute(importMeta, dynamicImport, accept);
 				const result = iterator.next();
-				assert(scope !== undefined);
+				assert.ok(scope !== undefined);
 				const [ replace, exports ] = scope;
 				this.state = {
 					status: ModuleStatus.linking,
@@ -142,14 +142,14 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 	}
 
 	link(select?: SelectModuleInstance) {
-		assert(this.state.status !== ModuleStatus.new);
+		assert.ok(this.state.status !== ModuleStatus.new);
 		if (this.state.status === ModuleStatus.linking) {
 			const bindings = initializeEnvironment(
 				this.controller.url,
 				this.declaration.loadedModules,
 				entry => {
 					const module = entry.controller().select(select);
-					assert(
+					assert.ok(
 						module.state.status === ModuleStatus.linking ||
 						module.state.status === ModuleStatus.linked ||
 						module.state.status === ModuleStatus.evaluated ||
@@ -158,7 +158,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 				},
 				(entry, exportName) => {
 					const module = entry.controller().select(select);
-					assert(
+					assert.ok(
 						module.state.status === ModuleStatus.linking ||
 						module.state.status === ModuleStatus.linked ||
 						module.state.status === ModuleStatus.evaluated ||
@@ -178,7 +178,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 	}
 
 	relink(select?: SelectModuleInstance) {
-		assert(
+		assert.ok(
 			this.state.status === ModuleStatus.linked ||
 			this.state.status === ModuleStatus.evaluated ||
 			this.state.status === ModuleStatus.evaluatingAsync);
@@ -187,14 +187,14 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			this.declaration.loadedModules,
 			entry => {
 				const module = entry.controller().select(select);
-				assert(
+				assert.ok(
 					module.state.status === ModuleStatus.evaluated ||
 					module.state.status === ModuleStatus.evaluatingAsync);
 				return module.moduleNamespace(select);
 			},
 			(entry, exportName) => {
 				const module = entry.controller().select(select);
-				assert(
+				assert.ok(
 					module.state.status === ModuleStatus.linked ||
 					module.state.status === ModuleStatus.evaluated ||
 					module.state.status === ModuleStatus.evaluatingAsync);
@@ -244,7 +244,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 							//   microtask.
 							await continuation.previous;
 							const next = await continuation.iterator.next(imports);
-							assert(next.done);
+							assert.ok(next.done);
 						})();
 						promise.then(completion.resolve, completion.reject);
 						this.state = {
@@ -275,7 +275,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 							completion,
 						};
 						const next = continuation.iterator.next(imports);
-						assert(next.done);
+						assert.ok(next.done);
 						completion.resolve();
 						this.state = {
 							status: ModuleStatus.evaluated,
@@ -331,7 +331,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 	}
 
 	private async dynamicImport(specifier: string, importAssertions?: Record<string, string>) {
-		assert(
+		assert.ok(
 			this.state.status === ModuleStatus.evaluating ||
 			this.state.status === ModuleStatus.evaluatingAsync ||
 			this.state.status === ModuleStatus.evaluated);
@@ -359,7 +359,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 	// 16.2.1.10 GetModuleNamespace ( module )
 	moduleNamespace(select?: SelectModuleInstance) {
 		if (!this.namespace) {
-			assert(this.state.status !== ModuleStatus.new);
+			assert.ok(this.state.status !== ModuleStatus.new);
 			const namespace = Object.create(null);
 			this.namespace ??= () => namespace;
 			const ambiguousNames = new Set<string>();
@@ -368,7 +368,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			(function traverse(instance: ReloadableModuleInstance) {
 				if (!seen.has(instance)) {
 					seen.add(instance);
-					assert(instance.state.status !== ModuleStatus.new);
+					assert.ok(instance.state.status !== ModuleStatus.new);
 					for (const [ name, resolution ] of Object.entries(instance.state.environment.exports)) {
 						if (name !== "default") {
 							const previousResolution = resolutions.get(name);
@@ -383,7 +383,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 						const instance = entry.moduleRequest.controller().select(select);
 						if (entry.binding.type === BindingType.indirectExport) {
 							const resolution = instance.resolveExport(entry.binding.name, select);
-							assert(resolution != null);
+							assert.ok(resolution != null);
 							resolutions.set(entry.binding.as ?? entry.binding.name, resolution);
 						} else {
 							assert.equal(entry.binding.type, BindingType.indirectStarExport);
@@ -427,7 +427,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 
 	resolveExportInner(exportName: string, select: SelectModuleInstance | undefined, linkIndex: number): Resolution {
 		// 1. Assert: module.[[Status]] is not new.
-		assert(this.state.status !== ModuleStatus.new);
+		assert.ok(this.state.status !== ModuleStatus.new);
 
 		// 2. If resolveSet is not present, set resolveSet to a new empty List.
 		// 3. For each Record { [[Module]], [[ExportName]] } r of resolveSet, do
