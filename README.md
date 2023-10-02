@@ -60,7 +60,7 @@ GETTING STARTED
 ---------------
 
 Probably your service has a file called `main.js` or whatever that starts an HTTP server. The
-easiest way to enable hot reloading is to add a call to `hot.import.meta.accept` in this "top"
+easiest way to enable hot reloading is to add a call to `import.meta.hot.accept` in this "top"
 module. So your file would look something like this:
 
 ```js
