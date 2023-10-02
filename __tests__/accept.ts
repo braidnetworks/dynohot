@@ -33,3 +33,38 @@ test("should be able to accept a cycle root", async () => {
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
 });
+
+test("catch error from accept", async () => {
+	const main = new TestModule(() =>
+		`import ${child};
+		import.meta.hot.accept(${child}, () => {
+			globalThis.seen2 = true;
+		});`);
+	const child = new TestModule(() =>
+		`import ${child2};
+		import.meta.hot.accept(${child2}, () => {
+			globalThis.seen1 = true;
+			throw new Error("uh oh");
+		})`);
+	const child2 = new TestModule(() => "");
+	await main.dispatch();
+	child2.update(() => "");
+	const result = await main.releaseUpdate();
+	expect(result?.type).toBe(UpdateStatus.success);
+	expect(main.global.seen1).toBe(true);
+	expect(main.global.seen2).toBe(true);
+});
+
+test("catch error from self-accept", async () => {
+	const main = new TestModule(() =>
+		`import ${child};
+		import.meta.hot.accept(${child});`);
+	const child = new TestModule(() =>
+		`import.meta.hot.accept(() => {
+			throw new Error("uh oh");
+		})`);
+	await main.dispatch();
+	child.update(() => "");
+	const result = await main.releaseUpdate();
+	expect(result?.type).toBe(UpdateStatus.success);
+});

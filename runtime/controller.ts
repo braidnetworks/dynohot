@@ -53,6 +53,7 @@ export enum UpdateStatus {
 	declined = "declined",
 	evaluationFailure = "evaluationError",
 	linkError = "linkError",
+	fatalError = "fatalError",
 	unaccepted = "unaccepted",
 	unacceptedEvaluation = "unacceptedEvaluation",
 }
@@ -63,6 +64,7 @@ type UpdateResult =
 	UpdateDeclined |
 	UpdateUnaccepted |
 	UpdateEvaluationError |
+	UpdateFatalError |
 	UpdateLinkError;
 
 interface UpdateSuccess {
@@ -91,6 +93,11 @@ interface UpdateLinkError {
 	error: unknown;
 }
 
+interface UpdateFatalError {
+	type: UpdateStatus.fatalError;
+	error: unknown;
+}
+
 interface UpdateStats {
 	duration: number;
 	loads: number;
@@ -110,6 +117,10 @@ function logUpdate(update: UpdateResult) {
 	switch (update.type) {
 		case UpdateStatus.declined:
 			console.error(`[hot] A pending update was explicitly declined:\n${update.declined.map(module => `- ${makeRelative(module.url)}`).join("\n")}`);
+			break;
+
+		case UpdateStatus.fatalError:
+			console.error("[hot] A fatal error was encountered. The application should be restarted!");
 			break;
 
 		case UpdateStatus.evaluationFailure: {
@@ -190,6 +201,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 	private staging: ReloadableModuleInstance | undefined;
 	/** Temporary, maybe "unlinked" instances used for link testing */
 	private temporary: ReloadableModuleInstance | undefined;
+	private fatalError: UpdateFatalError | undefined;
 	private traversal = makeTraversalState();
 	private visitIndex = 0;
 	private version = 0;
@@ -391,6 +403,11 @@ export class ReloadableModuleController implements AbstractModuleController {
 
 	private async requestUpdate(this: ReloadableModuleController): Promise<UpdateResult> {
 
+		// Check for previous unrecoverable error
+		if (this.fatalError) {
+			return this.fatalError;
+		}
+
 		// Set up statistics tracking
 		let loads = 0;
 		let reevaluations = 0;
@@ -581,6 +598,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 		const previousControllers = Array.from(this.traverse());
 
 		// Dispatch link & evaluate
+		let dispatchLinkErrorType: UpdateStatus.fatalError | undefined;
 		try {
 			interface RunResult {
 				forwardResults: readonly RunResult[];
@@ -629,7 +647,16 @@ export class ReloadableModuleController implements AbstractModuleController {
 					// 1) Instantiate
 					for (const node of cycleNodes) {
 						const pending = node.select(controller => controller.pending);
-						const data = node.current === undefined ? undefined : await dispose(node.current);
+						const data = await async function() {
+							try {
+								return node.current === undefined ? undefined : await dispose(node.current);
+							} catch (error) {
+								console.error(`[hot] Caught error in module '${node.url}' during dispose:`);
+								console.error(error);
+								dispatchLinkErrorType = UpdateStatus.fatalError;
+								throw error;
+							}
+						}();
 						if (node.current === pending) {
 							node.current = node.current.clone();
 						} else {
@@ -703,7 +730,11 @@ export class ReloadableModuleController implements AbstractModuleController {
 						current.relink();
 					}
 				});
-			return { type: UpdateStatus.evaluationFailure, error, stats };
+			if (dispatchLinkErrorType === undefined) {
+				return { type: UpdateStatus.evaluationFailure, error, stats };
+			} else {
+				return this.fatalError = { type: dispatchLinkErrorType, error };
+			}
 
 		} finally {
 			// Dispose old modules
@@ -717,7 +748,14 @@ export class ReloadableModuleController implements AbstractModuleController {
 			for (const controller of previousControllers) {
 				if (!currentControllers.has(controller)) {
 					const current = controller.select();
-					await prune(current);
+					try {
+						await prune(current);
+					} catch (error) {
+						console.error(`[hot] Caught error in module '${controller.url}' during prune:`);
+						console.error(error);
+						// eslint-disable-next-line no-unsafe-finally
+						return this.fatalError = { type: UpdateStatus.fatalError, error };
+					}
 					// Move the instance to staging to setup for `dispatch` in case it's re-imported
 					controller.staging = current.clone();
 					controller.current = undefined;

@@ -32,3 +32,15 @@ test("dispose handlers should run even if invalidated", async () => {
 	expect(result?.type).toBe(UpdateStatus.success);
 	expect(main.global.seen).toBe(true);
 });
+
+test("do not throw from dispose, alright", async () => {
+	const main = new TestModule(() =>
+		`import.meta.hot.accept();
+		import.meta.hot.dispose(() => {
+			throw new Error();
+		});`);
+	await main.dispatch();
+	main.update(() => "");
+	const result = await main.releaseUpdate();
+	expect(result?.type).toBe(UpdateStatus.fatalError);
+});

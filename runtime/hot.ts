@@ -168,7 +168,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 						entry.found ? entry.module : instance.lookupSpecifier(entry.specifier));
 					if (acceptedModules.every(module => module != null)) {
 						return {
-							callback: accepts.callback,
+							accepts,
 							modules: acceptedModules as ReloadableModuleController[],
 						};
 					}
@@ -177,11 +177,18 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 				if (!modules.every(module => !imports.has(module) || acceptedModules.has(module))) {
 					return false;
 				}
-				for (const handler of acceptedHandlers) {
-					if (handler.callback && modules.some(module => handler.modules.includes(module))) {
-						const namespaces = handler.modules.map(module => module.select().moduleNamespace()());
-						await handler.callback(namespaces);
-						if (hot !== null && hot.#invalidated) {
+				for (const { accepts, modules } of acceptedHandlers) {
+					if (accepts.callback && modules.some(module => modules.includes(module))) {
+						const namespaces = modules.map(module => module.select().moduleNamespace()());
+						assert.ok(hot);
+						try {
+							await accepts.callback(namespaces);
+						} catch (error) {
+							console.error(`[hot] Caught error in module '${hot.#module.url}' during accept of [${accepts.localEntries.map(entry => `'${entry.specifier}'`).join(", ")}]:`);
+							console.error(error);
+							return false;
+						}
+						if (hot.#invalidated) {
 							return false;
 						}
 					}
@@ -195,7 +202,13 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 				return false;
 			} else {
 				for (const callback of hot.#acceptsSelf) {
-					await callback(self);
+					try {
+						await callback(self);
+					} catch (error) {
+						console.error(`[hot] Caught error in module '${hot.#module.url}' during self-accept:`);
+						console.error(error);
+						return false;
+					}
 				}
 				return true;
 			}
