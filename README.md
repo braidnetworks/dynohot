@@ -27,7 +27,7 @@ EXAMPLE
 `main.js`
 ```js
 import { now } from "./now.js";
-setInterval(() => console.log(counter), 1000);
+setInterval(() => console.log(now), 1000);
 import.meta.hot.accept("./now.js");
 ```
 
