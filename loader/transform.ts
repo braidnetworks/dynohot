@@ -2,8 +2,6 @@ import type { NodePath, Visitor } from "@babel/traverse";
 import type { BindingEntry } from "dynohot/runtime/binding";
 import * as assert from "node:assert/strict";
 import { parse, types as t } from "@babel/core";
-// @ts-expect-error
-import syntaxImportAttributes from "@babel/plugin-syntax-import-attributes";
 import convertSourceMap from "convert-source-map";
 import Fn from "dynohot/functional";
 import { BindingType } from "dynohot/runtime/binding";
@@ -38,9 +36,12 @@ export function transformModuleSource(
 				filename,
 				retainLines: true,
 				sourceType: "module",
-				plugins: [
-					[ syntaxImportAttributes, { deprecatedAssertSyntax: true } ],
-				],
+				parserOpts: {
+					plugins: [
+						"explicitResourceManagement",
+						[ "importAttributes", { deprecatedAssertSyntax: true } ],
+					],
+				},
 			});
 			assert.ok(file);
 			return file;
