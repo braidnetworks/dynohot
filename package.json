@@ -19,12 +19,11 @@
 	},
 	"scripts": {
 		"lint": "eslint --max-warnings=0 --report-unused-disable-directives .",
-		"test": "NODE_OPTIONS='--no-warnings --experimental-vm-modules' npx jest"
+		"test": "NODE_OPTIONS='--no-warnings --experimental-vm-modules' npx jest --silent"
 	},
 	"dependencies": {
 		"@babel/core": "^7.23.0",
 		"@babel/generator": "^7.23.0",
-		"@babel/plugin-syntax-import-attributes": "^7.22.5",
 		"@babel/traverse": "^7.23.0",
 		"convert-source-map": "^2.0.0"
 	},
