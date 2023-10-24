@@ -9,7 +9,7 @@ import { generate, makeRootPath, traverse } from "./babel-shim.js";
 
 const makeLocalGetter = (localName: string, exportName: string) =>
 	t.objectProperty(
-		t.identifier(exportName),
+		t.stringLiteral(exportName),
 		t.arrowFunctionExpression([], t.identifier(localName)));
 
 const extractName = (node: t.Identifier | t.StringLiteral) =>
