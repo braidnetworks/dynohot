@@ -73,7 +73,6 @@ export function transformModuleSource(
 	const sourceMapComment = result.map ? convertSourceMap.fromObject(result.map).toComment() : "";
 
 	// Make import declarations
-	const importRuntime = 'import { acquire } from "hot:runtime";';
 	const imports = Fn.join(Fn.map(
 		state.importDeclarations,
 		declaration =>
@@ -98,7 +97,7 @@ export function transformModuleSource(
 	const loader = `module().load(${body}, ${importMeta}, ${state.usesDynamicImport}, "module", ${JSON.stringify(importAssertions)}, ${requestEntries});`;
 
 	// Build final module source
-	return `${result.code}\n${sourceMapComment}\n${importRuntime}\n${imports}\n${loader}\n`;
+	return `${result.code}\n${sourceMapComment}\n${imports}\n${loader}\n`;
 }
 
 function transformProgram(program: NodePath<t.Program>) {
@@ -328,7 +327,6 @@ function transformProgram(program: NodePath<t.Program>) {
 	const holderName = program.scope.generateUid("$");
 	const importDynamicName = program.scope.generateUid("import");
 	const importMetaName = program.scope.generateUid("meta");
-	const acceptName = program.scope.generateUid("accept");
 	const visitorState: VisitorState = {
 		holderName,
 		importedLocalNames: new Set(importedBindings.keys()),
@@ -349,29 +347,22 @@ function transformProgram(program: NodePath<t.Program>) {
 			[
 				t.identifier(importMetaName),
 				t.identifier(importDynamicName),
-				...visitorState.usesTopLevelAwait ? [ t.identifier(acceptName) ] : [],
 			],
 			t.blockStatement([
 				t.variableDeclaration("let", [
 					t.variableDeclarator(
 						t.identifier(holderName),
-						t.yieldExpression(function() {
-							const scope = t.arrayExpression([
-								t.arrowFunctionExpression(
-									[ t.identifier("next") ],
-									t.blockStatement([
-										t.expressionStatement(
-											t.assignmentExpression("=", t.identifier(holderName), t.identifier("next"))),
-									])),
-								exportedGetters,
-							]);
-							if (visitorState.usesTopLevelAwait) {
-								return t.callExpression(t.identifier(acceptName), [ scope ]);
-							} else {
-								return scope;
-							}
-						}())),
+						t.yieldExpression(t.arrayExpression([
+							t.arrowFunctionExpression(
+								[ t.identifier("next") ],
+								t.blockStatement([
+									t.expressionStatement(
+										t.assignmentExpression("=", t.identifier(holderName), t.identifier("next"))),
+								])),
+							exportedGetters,
+						]))),
 				]),
+				t.expressionStatement(t.yieldExpression()),
 				...program.node.body,
 			]),
 			true,

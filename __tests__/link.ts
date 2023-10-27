@@ -47,3 +47,15 @@ test("duplicate named export", async () => {
 		export const name = 2`);
 	await expect(main.dispatch()).rejects.toThrowError(SyntaxError);
 });
+
+// Caused by combining the link + evaluation phases into a single yield
+test("hoisted functions run correctly", async () => {
+	const main: TestModule = new TestModule(() =>
+		`import { value } from ${child};
+		export function hoisted() { value; }`);
+	const child = new TestModule(() =>
+		`import { hoisted } from ${main};
+		export const value = 1;
+		hoisted();`);
+	await main.dispatch();
+});

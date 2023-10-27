@@ -41,6 +41,7 @@ const makeJsonModule = (url: string, json: string, importAssertions: ImportAsser
 `import { acquire } from "hot:runtime"
 function* execute() {
 	yield [ () => {}, { default: () => json } ];
+	yield;
 	const json = JSON.parse(${JSON.stringify(json)});
 }
 export default function module() {
@@ -70,6 +71,7 @@ const makeReloadableModule = async (url: string, source: string, importAssertion
 	return (
 	// eslint-disable-next-line @typescript-eslint/indent
 `${transformModuleSource(url, importAssertions, source, sourceMap)}
+import { acquire } from "hot:runtime";
 export default function module() { return acquire(${JSON.stringify(url)}); }\n`
 	);
 };

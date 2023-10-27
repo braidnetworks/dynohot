@@ -27,7 +27,7 @@ type DynamicImport = (specifier: string, importAssertions?: Record<string, strin
 
 interface ModuleBodySync {
 	async: false;
-	execute: (meta: ImportMeta | null, dynamicImport: DynamicImport) => Generator<ModuleBodyScope, void, ModuleExports>;
+	execute: (meta: ImportMeta | null, dynamicImport: DynamicImport) => Generator<ModuleBodyYields, void, ModuleExports>;
 }
 
 interface ModuleBodyAsync {
@@ -35,16 +35,17 @@ interface ModuleBodyAsync {
 	execute: (
 		meta: ImportMeta | null,
 		dynamicImport: DynamicImport,
-		accepts: (scope: ModuleBodyScope) => void,
-	) => AsyncGenerator<ModuleBodyScope, void, ModuleExports>;
+	) => AsyncGenerator<ModuleBodyYields, void, ModuleExports>;
 }
 
 /** @internal */
-export type ModuleBodyScope = [
-	replace: (this: void, exports: ModuleExports) => void,
-	/** [[LocalExportEntries]] */
-	exports: ModuleExports,
-];
+export type ModuleBodyYields = [ ModuleBodyImportsReplace, ModuleExports ] | undefined;
+
+/** @internal */
+export type ModuleBodyYieldScope = [ ModuleBodyImportsReplace, ModuleExports ];
+
+/** @internal */
+export type ModuleBodyImportsReplace = (this: void, exports: ModuleExports) => void;
 
 /** @internal */
 export interface LoadedModuleRequestEntry extends ModuleRequestEntry {

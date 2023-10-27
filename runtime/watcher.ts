@@ -52,7 +52,7 @@ export class FileWatcher {
 			return holder;
 		})();
 		// Initialize by-file callback holder
-		const byFile = directoryWatcher.callbacksByFile.get(fileName) ?? (() => {
+		const byFile = directoryWatcher.callbacksByFile.get(fileName) ?? function() {
 			let stat: fs.Stats | null = null;
 			const callbacks = new Set<() => void>();
 			const dispatch = debounceAsync(async () => {
@@ -73,7 +73,7 @@ export class FileWatcher {
 			const byFile = { callbacks, dispatch };
 			directoryWatcher.callbacksByFile.set(fileName, byFile);
 			return byFile;
-		})();
+		}();
 		byFile.callbacks.add(callback);
 		return () => {
 			byFile.callbacks.delete(callback);

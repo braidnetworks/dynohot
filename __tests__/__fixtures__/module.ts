@@ -106,6 +106,7 @@ export class TestModule {
 			this.environment = environment;
 			const source =
 				transformModuleSource(this.url, {}, this.source(), undefined) +
+				'import { acquire } from "hot:runtime";' +
 				`export default function module() { return acquire(${JSON.stringify(this.url)}); }\n`;
 			return this.vm = new HotInstanceSourceModule(source, {
 				context: environment.context,

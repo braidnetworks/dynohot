@@ -1,4 +1,4 @@
-import type { ModuleBodyScope, ModuleDeclaration } from "./declaration.js";
+import type { ModuleBodyYieldScope, ModuleBodyYields, ModuleDeclaration } from "./declaration.js";
 import type { Data } from "./hot.js";
 import type { AbstractModuleInstance, ModuleController, ModuleExports, Resolution, SelectModuleInstance } from "./module.js";
 import type { WithResolvers } from "./utility.js";
@@ -34,7 +34,6 @@ interface ModuleStateLinked {
 	readonly status: ModuleStatus.linked;
 	readonly continuation: ModuleContinuation;
 	readonly environment: ModuleEnvironment;
-	readonly imports: ModuleExports;
 	readonly completion: WithResolvers<void>;
 }
 
@@ -74,7 +73,6 @@ interface ModuleContinuationSync {
 interface ModuleContinuationAsync {
 	readonly async: true;
 	readonly iterator: AsyncIterator<unknown, void, ModuleExports>;
-	readonly previous: Promise<IteratorResult<unknown>>;
 }
 
 const acquireLinkIndex = makeAcquireVisitIndex();
@@ -116,22 +114,22 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			})();
 			const dynamicImport = this.dynamicImport.bind(this);
 			if (this.declaration.body.async) {
-				let scope: ModuleBodyScope | undefined;
-				const accept = (value: ModuleBodyScope) => { scope = value; };
-				const iterator = this.declaration.body.execute(importMeta, dynamicImport, accept);
-				const result = iterator.next();
-				assert.ok(scope !== undefined);
-				const [ replace, exports ] = scope;
-				this.state = {
-					status: ModuleStatus.linking,
-					continuation: { async: true, iterator, previous: result },
-					environment: { exports, hot, replace },
-				};
+				const iterator = this.declaration.body.execute(importMeta, dynamicImport);
+				return (async () => {
+					const next = await iterator.next();
+					assert.equal(next.done, false);
+					const [ replace, exports ] = next.value satisfies ModuleBodyYields as ModuleBodyYieldScope;
+					this.state = {
+						status: ModuleStatus.linking,
+						continuation: { async: true, iterator },
+						environment: { exports, hot, replace },
+					};
+				})();
 			} else {
 				const iterator = this.declaration.body.execute(importMeta, dynamicImport);
-				const result = iterator.next();
-				assert.equal(result.done, false);
-				const [ replace, exports ] = result.value;
+				const next = iterator.next();
+				assert.equal(next.done, false);
+				const [ replace, exports ] = next.value satisfies ModuleBodyYields as ModuleBodyYieldScope;
 				this.state = {
 					status: ModuleStatus.linking,
 					continuation: { async: false, iterator },
@@ -165,15 +163,25 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 						module.state.status === ModuleStatus.evaluatingAsync);
 					return module.resolveExport(exportName, select);
 				});
+			const imports = Object.fromEntries(bindings);
+			const { continuation } = this.state;
 			this.state = {
 				status: ModuleStatus.linked,
 				continuation: this.state.continuation,
 				environment: this.state.environment,
-				imports: Object.fromEntries(bindings),
 				// eslint-disable-next-line @typescript-eslint/no-invalid-void-type
 				completion: withResolvers<void>(),
 			};
 			this.state.completion.promise.catch(() => {});
+			if (continuation.async) {
+				return (async () => {
+					const next = await continuation.iterator.next(imports);
+					assert.equal(next.done, false);
+				})();
+			} else {
+				const next = continuation.iterator.next(imports);
+				assert.equal(next.done, false);
+			}
 		}
 	}
 
@@ -215,7 +223,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 
 			case ModuleStatus.linked:
 			case ModuleStatus.linking: {
-				const continuation = this.state.continuation;
+				const { continuation } = this.state;
 				if (continuation.async) {
 					void continuation.iterator.return?.();
 				} else {
@@ -232,33 +240,25 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 	evaluate() {
 		switch (this.state.status) {
 			case ModuleStatus.linked: {
-				const { completion, continuation, imports } = this.state;
+				const { completion, continuation } = this.state;
 				if (continuation.async) {
 					return (async () => {
 						assert.equal(this.state.status, ModuleStatus.linked);
-						const promise = (async () => {
-							// nb: This `await` serves two purposes:
-							// - It ensures that the `previous` promise is awaited before the `next`
-							//   promise.
-							// - It also ensures that `state` is set by yielding for a least a
-							//   microtask.
-							await continuation.previous;
-							const next = await continuation.iterator.next(imports);
-							assert.ok(next.done);
-						})();
-						promise.then(completion.resolve, completion.reject);
 						this.state = {
 							status: ModuleStatus.evaluatingAsync,
 							environment: this.state.environment,
 							completion,
 						};
 						try {
-							await promise;
+							const next = await continuation.iterator.next();
+							assert.ok(next.done);
+							completion.resolve();
 							this.state = {
 								status: ModuleStatus.evaluated,
 								environment: this.state.environment,
 							};
 						} catch (error) {
+							completion.reject(error);
 							this.state = {
 								status: ModuleStatus.evaluated,
 								environment: this.state.environment,
@@ -274,7 +274,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 							environment: this.state.environment,
 							completion,
 						};
-						const next = continuation.iterator.next(imports);
+						const next = continuation.iterator.next();
 						assert.ok(next.done);
 						completion.resolve();
 						this.state = {

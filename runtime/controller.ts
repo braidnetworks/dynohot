@@ -250,22 +250,28 @@ export class ReloadableModuleController implements AbstractModuleController {
 
 	async dispatch(this: ReloadableModuleController) {
 		if (this.current === undefined) {
-			// Place `current` from `staging` if it's not set up, instantiate all reloadable
-			// modules, and perform link.
-			traverseDepthFirst(
+			// Set `current` from `staging` if it's not set up, then instantiate & link all
+			// reloadable modules.
+			await traverseDepthFirst(
 				this,
 				node => node.traversal,
 				(node, traversal) => {
 					node.traversal = traversal;
 					if (node.current === undefined) {
-						const staging = node.select(controller => controller.staging);
-						node.current = staging;
-						node.current.instantiate();
+						node.current = node.select(controller => controller.staging);
 					}
 					return node.iterate();
 				},
-				(nodes): undefined => {
-					const withRollback = iterateWithRollback(nodes, nodes => {
+				async cycleNodes => {
+					// Instantiate the cycle (cannot fail)
+					for (const node of cycleNodes) {
+						const maybe = node.select().instantiate();
+						if (maybe) {
+							await maybe;
+						}
+					}
+					// Link the cycle
+					const withRollback = iterateWithRollback(cycleNodes, nodes => {
 						for (const node of nodes) {
 							if (node.select().unlink()) {
 								node.current = undefined;
@@ -273,7 +279,10 @@ export class ReloadableModuleController implements AbstractModuleController {
 						}
 					});
 					for (const node of withRollback) {
-						node.select().link();
+						const maybe = node.select().link();
+						if (maybe) {
+							await maybe;
+						}
 					}
 				},
 				pendingNodes => {
@@ -292,13 +301,16 @@ export class ReloadableModuleController implements AbstractModuleController {
 					node.traversal = traversal;
 					return node.iterate();
 				},
-				async nodes => {
-					for (const node of nodes) {
+				async cycleNodes => {
+					for (const node of cycleNodes) {
 						const current = node.select();
 						if (current === node.staging) {
 							node.staging = undefined;
 						}
-						await current.evaluate();
+						const maybe = current.evaluate();
+						if (maybe) {
+							await maybe;
+						}
 					}
 				});
 		}
@@ -547,7 +559,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 		if (initialResult.hasNewCode) {
 			const instantiated: ReloadableModuleController[] = [];
 			try {
-				traverseDepthFirst(
+				await traverseDepthFirst(
 					this,
 					node => node.traversal,
 					(node, traversal) => {
@@ -556,7 +568,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 							controller => controller.pending,
 							controller => controller.previous ?? controller.pending);
 					},
-					(cycleNodes, forwardResults: readonly boolean[]) => {
+					async (cycleNodes, forwardResults: readonly boolean[]) => {
 						let hasUpdate = Fn.some(forwardResults);
 						if (!hasUpdate) {
 							for (const node of cycleNodes) {
@@ -571,12 +583,18 @@ export class ReloadableModuleController implements AbstractModuleController {
 							for (const node of cycleNodes) {
 								const pending = node.select(controller => controller.pending);
 								node.temporary = pending.clone();
-								node.temporary.instantiate();
+								const maybe = node.temporary.instantiate();
+								if (maybe) {
+									await maybe;
+								}
 								instantiated.push(node);
 							}
 							for (const node of cycleNodes) {
 								const temporary = node.select(controller => controller.temporary);
-								temporary.link(controller => controller.temporary ?? controller.pending);
+								const maybe = temporary.link(controller => controller.temporary ?? controller.pending);
+								if (maybe) {
+									await maybe;
+								}
 							}
 						}
 						return hasUpdate;
@@ -662,11 +680,17 @@ export class ReloadableModuleController implements AbstractModuleController {
 						} else {
 							node.current = pending;
 						}
-						node.current.instantiate(data);
+						const maybe = node.current.instantiate(data);
+						if (maybe) {
+							await maybe;
+						}
 					}
 					// 2) Link
 					for (const node of cycleNodes) {
-						node.select().link();
+						const maybe = node.select().link();
+						if (maybe) {
+							await maybe;
+						}
 					}
 					// 3) Evaluate
 					const withRollback = iterateWithRollback(cycleNodes, nodes => {
@@ -685,7 +709,10 @@ export class ReloadableModuleController implements AbstractModuleController {
 						} else {
 							++loads;
 						}
-						await current.evaluate();
+						const maybe = current.evaluate();
+						if (maybe) {
+							await maybe;
+						}
 						node.pending = undefined;
 						if (current === node.staging) {
 							node.staging = undefined;
