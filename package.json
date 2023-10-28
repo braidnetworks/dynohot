@@ -19,6 +19,7 @@
 	},
 	"scripts": {
 		"lint": "eslint --max-warnings=0 --report-unused-disable-directives .",
+		"prepare": "rm -rf dist && tsc -b",
 		"test": "NODE_OPTIONS='--no-warnings --experimental-vm-modules' npx jest --silent"
 	},
 	"dependencies": {
