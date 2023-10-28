@@ -282,30 +282,51 @@ An example of the transformation follows:
 
 `main.js`
 ```js
-import { symbol } from "./symbol";
-export const name = "hello world";
-console.log(symbol);
+import { importedValue } from "./a-module";
+export const exportedValue = "hello world";
+console.log(importedValue);
 ```
 
 ```js
 import { acquire } from "hot:runtime";
-import _symbol from "hot:module?specifier=./symbol";
-function* execute() {
-    let _$ = yield [ next => { _$ = next; }, {
-        name: () => name,
-    } ];
-    const name = "hello world";
-    console.log(_$.symbol());
+import _a_module from "hot:module?specifier=./a-module";
+function* execute(_meta, _import) {
+    // suspend until initial link of this module
+    let _$ = yield [
+        // re-link function, updates import holder
+        next => { _$ = next },
+        // exported locals
+        { exportedValue: () => exportedValue },
+    ];
+    // suspend until this module is ready to evaluate
+    yield;
+    const exportedValue = "hello world";
+    // imported values go through a function call
+    console.log(_$.importedValue());
 }
-module().load({ async: false, execute }, null, false, {}, [ {
-    controller: _symbol,
-    specifier: "./symbol",
-    bindings: [ {
-        type: "import",
-        name: "symbol"
+module().load(
+    // module body
+    { async: false, execute },
+    // import.meta [unused in this example]
+    null,
+    // uses dynamic `import()`?
+    false,
+    // module format: [ "module", "json", "commonjs", (others??) ]
+    "module",
+    // import assertions `import .. with { type: "json" }`
+    {},
+    // imports
+    [ {
+        controller: _a_module,
+        specifier: "./a-module",
+        bindings: [ {
+            type: "import",
+            name: "importedValue",
+        } ],
     } ],
-} ]);
-export default function module() { return acquire("./main.js") }
+);
+// a hoistable function must be used to export the module controller in circular graphs
+export default function module() { return acquire("file:///main.mjs"); }
 ```
 
 The module body is wrapped in a generator function which lets us re-execute the same module multiple
