@@ -28,7 +28,7 @@ function extractImportAssertions(params: URLSearchParams): ImportAssertions {
 const makeAdapterModule = (url: string, importAssertions: ImportAssertions) => {
 	const encodedURL = JSON.stringify(url);
 	return (
-	// eslint-disable-next-line @typescript-eslint/indent
+	// eslint-disable-next-line @stylistic/indent
 `import * as namespace from ${encodedURL} assert ${JSON.stringify(importAssertions)};
 import { adapter } from "hot:runtime";
 const module = adapter(${encodedURL}, namespace);
@@ -37,7 +37,7 @@ export default function() { return module; };\n`
 };
 
 const makeJsonModule = (url: string, json: string, importAssertions: ImportAssertions) =>
-// eslint-disable-next-line @typescript-eslint/indent
+// eslint-disable-next-line @stylistic/indent
 `import { acquire } from "hot:runtime"
 function* execute() {
 	yield [ () => {}, { default: () => json } ];
@@ -69,8 +69,7 @@ const makeReloadableModule = async (url: string, source: string, importAssertion
 	// `parentURL` in the resolve callback. We will "burn in" `moduleURL` into the transformed
 	// source as a post-transformation process.
 	return (
-	// eslint-disable-next-line @typescript-eslint/indent
-`${transformModuleSource(url, importAssertions, source, sourceMap)}
+		`${transformModuleSource(url, importAssertions, source, sourceMap)}
 import { acquire } from "hot:runtime";
 export default function module() { return acquire(${JSON.stringify(url)}); }\n`
 	);
@@ -91,12 +90,12 @@ function maybeThen<Type, Result>(
 ): MaybePromiseLike<Awaited<Result>> {
 	// For the life of me, I can't figure out how to type this. `maybePromise` should probably also
 	// include `& { then?: never }` and maybe the primitives, but that causes other problems.
-	// @ts-expect-error
+	// @ts-expect-error -- I don't know how to type this
 	if (typeof maybePromise.then === "function") {
-		// @ts-expect-error
+		// @ts-expect-error -- I don't know how to type this
 		return maybePromise.then(then);
 	} else {
-		// @ts-expect-error
+		// @ts-expect-error -- I don't know how to type this
 		return then(maybePromise);
 	}
 }

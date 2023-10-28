@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/indent */
+/* eslint-disable @stylistic/indent */
 type ModuleNamespace = Record<string, unknown>;
 export declare class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unknown>> {
     /**

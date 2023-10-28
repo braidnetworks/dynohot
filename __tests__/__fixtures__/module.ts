@@ -68,7 +68,7 @@ export class TestModule {
 			pending: [],
 			top: this,
 		};
-		// @ts-expect-error
+		// @ts-expect-error -- readonly override
 		environment.runtime = TestModule.makeRuntime(environment as Environment);
 		const vm = this.instantiate(environment as Environment);
 		await this.linkAndEvaluate();
@@ -112,7 +112,8 @@ export class TestModule {
 				context: environment.context,
 				environment,
 				identifier: this.url,
-				// @ts-expect-error
+				// @ts-expect-error -- Types incorrect, since `importModuleDynamically` can accept
+				// an exotic namespace object in the runtime
 				importModuleDynamically: TestModule.dynamicImport.bind(undefined, environment),
 				initializeImportMeta: meta => {
 					meta.url = this.url;
@@ -144,7 +145,8 @@ export class TestModule {
 			export const adapter = Adapter.adapter;
 			globalThis.expect = Jest.expect;\n`, {
 				context: environment.context,
-				// @ts-expect-error
+				// @ts-expect-error -- Types incorrect, since `importModuleDynamically` can accept
+				// an exotic namespace object in the runtime
 				importModuleDynamically: TestModule.dynamicImport.bind(undefined, environment),
 			});
 	}

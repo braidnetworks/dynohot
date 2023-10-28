@@ -65,7 +65,7 @@ export function transformModuleSource(
 		filename: filename.replace(/(\..+?|)$/, ".hot$1"),
 		retainLines: true,
 		sourceMaps: true,
-		// @ts-expect-error
+		// @ts-expect-error -- Types are out of date? https://github.com/babel/babel/blame/c446ff85c28e117ebf3cd72cd34ef358f1077aa8/packages/babel-generator/src/index.ts#L190
 		inputSourceMap: sourceMap,
 	});
 

@@ -1,5 +1,6 @@
 import babelParser from "@babel/eslint-parser";
 import js from "@eslint/js";
+import stylisticPlugin from "@stylistic/eslint-plugin";
 import typeScriptPlugin from "@typescript-eslint/eslint-plugin";
 import typeScriptParser from "@typescript-eslint/parser";
 import importPlugin from "eslint-plugin-import";
@@ -12,37 +13,17 @@ const nodeModules = Object.keys(process.binding("natives")).filter(name => !/^(?
 /** @typedef {import("eslint").Linter.RulesRecord} RulesRecord */
 
 /** @type {RulesRecord} */
-const rules = {
+const javaScriptRules = {
 	// Generic good practices and style
-	"array-bracket-newline": [ "warn", "consistent" ],
-	"array-bracket-spacing": [ "warn", "always" ],
 	"arrow-body-style": "warn",
 	"array-callback-return": [ "warn", { allowVoid: true } ],
-	"arrow-parens": [ "warn", "as-needed" ],
-	"arrow-spacing": "warn",
 	"block-scoped-var": "warn",
-	"block-spacing": "warn",
-	"brace-style": [ "warn", "1tbs", { allowSingleLine: true } ],
-	"comma-dangle": [ "warn", "always-multiline" ],
-	"comma-spacing": "warn",
-	"comma-style": "warn",
-	"computed-property-spacing": "warn",
 	curly: [ "warn", "multi-line", "consistent" ],
-	"dot-location": [ "warn", "property" ],
 	"dot-notation": "warn",
-	"eol-last": "warn",
 	eqeqeq: [ "warn", "smart" ],
-	"func-call-spacing": "warn",
 	"func-name-matching": "warn",
-	"generator-star-spacing": [ "warn", { anonymous: "neither", before: true, after: false } ],
 	"id-denylist": [ "warn", "xxx", "foo", "bar" ],
-	indent: [ "warn", "tab", { SwitchCase: 1, flatTernaryExpressions: true } ],
-	"key-spacing": [ "warn", { mode: "strict" } ],
-	"keyword-spacing": "warn",
-	"linebreak-style": "warn",
-	"lines-between-class-members": [ "warn", "always", { exceptAfterSingleLine: true } ],
 	"logical-assignment-operators": [ "warn", "always", { enforceForIfStatements: true } ],
-	"new-parens": "warn",
 	"no-array-constructor": "warn",
 	"no-caller": "warn",
 	"no-cond-assign": [ "warn", "except-parens" ],
@@ -55,31 +36,20 @@ const rules = {
 	"no-extend-native": "warn",
 	"no-extra-bind": "warn",
 	"no-extra-label": "warn",
-	"no-floating-decimal": "warn",
 	"no-implied-eval": "warn",
 	"no-iterator": "warn",
 	"no-label-var": "warn",
 	"no-labels": [ "warn", { allowLoop: true, allowSwitch: true } ],
 	"no-lone-blocks": "warn",
 	"no-lonely-if": "warn",
-	"no-mixed-operators": [ "warn", {
-		allowSamePrecedence: false,
-		groups: [
-			[ "&", "|", "^", "~", "<<", ">>", ">>>" ],
-			[ "==", "!=", "===", "!==", ">", ">=", "<", "<=" ],
-			[ "&&", "||" ],
-			[ "in", "instanceof" ],
-		],
-	} ],
-	"no-multi-spaces": "warn",
 	"no-multi-str": "warn",
-	"no-multiple-empty-lines": [ "warn", { max: 1, maxEOF: 0 } ],
 	"no-native-reassign": "warn",
 	"no-negated-condition": "warn",
 	"no-negated-in-lhs": "warn",
 	"no-new-func": "warn",
 	"no-new-wrappers": "warn",
 	"no-new": "warn",
+	"no-object-constructor": "warn",
 	"no-octal-escape": "warn",
 	"no-promise-executor-return": [ "warn", { allowVoid: true } ],
 	"no-restricted-imports": [ "warn", {
@@ -93,10 +63,8 @@ const rules = {
 	"no-script-url": "warn",
 	"no-self-compare": "warn",
 	"no-sequences": "warn",
-	"no-tabs": [ "warn", { allowIndentationTabs: true } ],
 	"no-template-curly-in-string": "warn",
 	"no-throw-literal": "warn",
-	"no-trailing-spaces": "warn",
 	"no-undef-init": "warn",
 	"no-unreachable-loop": "warn",
 	"no-unused-expressions": [ "warn", {
@@ -124,22 +92,8 @@ const rules = {
 		ignoreExport: false,
 	} ],
 	"no-useless-return": "warn",
-	"no-whitespace-before-property": "warn",
-	"nonblock-statement-body-position": "warn",
-	"object-curly-newline": [ "warn", { consistent: true } ],
-	"object-curly-spacing": [ "warn", "always" ],
 	"object-shorthand": [ "warn", "always" ],
-	"one-var-declaration-per-line": "warn",
 	"operator-assignment": "warn",
-	"operator-linebreak": [ "warn", "after", {
-		overrides: {
-			"?": "before",
-			":": "ignore",
-			"||": "ignore",
-			"&&": "ignore",
-		},
-	} ],
-	"padding-line-between-statements": "warn",
 	"prefer-arrow-callback": [ "warn", { allowNamedFunctions: true } ],
 	"prefer-const": [ "warn", { destructuring: "all" } ],
 	"prefer-destructuring": [ "warn", { array: false } ],
@@ -148,28 +102,10 @@ const rules = {
 	"prefer-object-spread": "warn",
 	"prefer-promise-reject-errors": "warn",
 	"prefer-regex-literals": "warn",
-	"quote-props": [ "warn", "as-needed" ],
-	quotes: [ "warn", "double", { avoidEscape: true } ],
 	radix: "warn",
-	"rest-spread-spacing": [ "warn", "never" ],
-	semi: [ "warn", "always" ],
-	"semi-spacing": "warn",
-	"semi-style": "warn",
 	"sort-imports": [ "warn", { ignoreDeclarationSort: true } ],
-	"space-before-blocks": "warn",
-	"space-infix-ops": "warn",
-	"space-unary-ops": "warn",
-	"space-before-function-paren": [ "warn", {
-		anonymous: "never",
-		named: "never",
-	} ],
-	"space-in-parens": "warn",
 	strict: [ "warn", "never" ],
-	"switch-colon-spacing": "warn",
 	"symbol-description": "warn",
-	"template-curly-spacing": "warn",
-	"template-tag-spacing": "warn",
-	"yield-star-spacing": "warn",
 	yoda: "warn",
 	"unicode-bom": [ "warn", "never" ],
 
@@ -197,19 +133,22 @@ const rules = {
 };
 
 /** @type {RulesRecord} */
-const typeScriptRules = acceptTypeScriptRules({
-	// These functions have sufficient type checks
-	"array-callback-return": "off",
-	// Obviated by ts(2845)
-	"use-isnan": "off",
-
-	// TypeScript rules which supersede an eslint rule
-	"@typescript-eslint/brace-style": [ "warn", "1tbs", { allowSingleLine: true } ],
-	"@typescript-eslint/comma-dangle": [ "warn", "always-multiline" ],
-	"@typescript-eslint/comma-spacing": "warn",
-	"@typescript-eslint/func-call-spacing": "warn",
-	// https://github.com/typescript-eslint/typescript-eslint/issues/1824
-	"@typescript-eslint/indent": [ "warn", "tab", {
+const formattingRules = {
+	"@stylistic/array-bracket-newline": [ "warn", "consistent" ],
+	"@stylistic/array-bracket-spacing": [ "warn", "always" ],
+	"@stylistic/arrow-parens": [ "warn", "as-needed" ],
+	"@stylistic/arrow-spacing": "warn",
+	"@stylistic/block-spacing": "warn",
+	"@stylistic/brace-style": [ "warn", "1tbs", { allowSingleLine: true } ],
+	"@stylistic/comma-dangle": [ "warn", "always-multiline" ],
+	"@stylistic/comma-spacing": "warn",
+	"@stylistic/comma-style": "warn",
+	"@stylistic/computed-property-spacing": "warn",
+	"@stylistic/dot-location": [ "warn", "property" ],
+	"@stylistic/eol-last": "warn",
+	"@stylistic/func-call-spacing": "warn",
+	"@stylistic/generator-star-spacing": [ "warn", { anonymous: "neither", before: true, after: false } ],
+	"@stylistic/indent": [ "warn", "tab", {
 		SwitchCase: 1,
 		flatTernaryExpressions: true,
 		ignoredNodes: [
@@ -217,13 +156,71 @@ const typeScriptRules = acceptTypeScriptRules({
 			"TSTypeParameterInstantiation",
 		],
 	} ],
-	"@typescript-eslint/keyword-spacing": "warn",
+	"@stylistic/key-spacing": [ "warn", { mode: "strict" } ],
+	"@stylistic/keyword-spacing": "warn",
+	"@stylistic/linebreak-style": "warn",
+	"@stylistic/lines-between-class-members": [ "warn", "always", { exceptAfterSingleLine: true } ],
+	"@stylistic/member-delimiter-style": "warn",
+	"@stylistic/no-extra-parens": [ "warn", "all", {
+		ignoreJSX: "all",
+		nestedBinaryExpressions: false,
+	} ],
+	"@stylistic/no-floating-decimal": "warn",
+	"@stylistic/no-mixed-operators": [ "warn", {
+		allowSamePrecedence: false,
+		groups: [
+			[ "&", "|", "^", "~", "<<", ">>", ">>>" ],
+			[ "==", "!=", "===", "!==", ">", ">=", "<", "<=" ],
+			[ "&&", "||" ],
+			[ "in", "instanceof" ],
+		],
+	} ],
+	"@stylistic/no-multi-spaces": "warn",
+	"@stylistic/no-multiple-empty-lines": [ "warn", { max: 1, maxEOF: 0 } ],
+	"@stylistic/no-whitespace-before-property": "warn",
+	"@stylistic/object-curly-newline": [ "warn", { consistent: true } ],
+	"@stylistic/object-curly-spacing": [ "warn", "always" ],
+	"@stylistic/operator-linebreak": [ "warn", "after", {
+		overrides: {
+			"?": "before",
+			":": "ignore",
+			"||": "ignore",
+			"&&": "ignore",
+		},
+	} ],
+	"@stylistic/padding-line-between-statements": "warn",
+	"@stylistic/quote-props": [ "warn", "as-needed" ],
+	"@stylistic/quotes": [ "warn", "double", { avoidEscape: true } ],
+	"@stylistic/rest-spread-spacing": [ "warn", "never" ],
+	"@stylistic/semi": [ "warn", "always" ],
+	"@stylistic/semi-spacing": "warn",
+	"@stylistic/semi-style": "warn",
+	"@stylistic/space-before-blocks": "warn",
+	"@stylistic/space-infix-ops": "warn",
+	"@stylistic/space-unary-ops": "warn",
+	"@stylistic/space-before-function-paren": [ "warn", {
+		anonymous: "never",
+		named: "never",
+	} ],
+	"@stylistic/space-in-parens": "warn",
+	"@stylistic/switch-colon-spacing": "warn",
+	"@stylistic/template-curly-spacing": "warn",
+	"@stylistic/template-tag-spacing": "warn",
+	"@stylistic/type-annotation-spacing": "warn",
+	"@stylistic/yield-star-spacing": "warn",
+};
+
+/** @type {RulesRecord} */
+const typeScriptRules = acceptTypeScriptRules({
+	// These functions have sufficient type checks
+	"array-callback-return": "off",
+	// Obviated by ts(2845)
+	"use-isnan": "off",
+
+	// TypeScript rules which supersede an eslint rule
 	"@typescript-eslint/naming-convention": [ "warn", {
 		format: [ "PascalCase" ],
 		selector: "typeLike",
-	} ],
-	"@typescript-eslint/no-extra-parens": [ "warn", "all", {
-		nestedBinaryExpressions: false,
 	} ],
 	"@typescript-eslint/no-unused-expressions": [ "warn", {
 		allowShortCircuit: true,
@@ -240,14 +237,6 @@ const typeScriptRules = acceptTypeScriptRules({
 		functions: false,
 		variables: false,
 	} ],
-	"@typescript-eslint/object-curly-spacing": [ "warn", "always" ],
-	"@typescript-eslint/quotes": [ "warn", "double", { avoidEscape: true } ],
-	"@typescript-eslint/semi": [ "warn", "always" ],
-	"@typescript-eslint/space-before-function-paren": [ "warn", {
-		anonymous: "never",
-		named: "never",
-	} ],
-	"@typescript-eslint/space-infix-ops": "warn",
 
 	// Consider [strictness]
 	"@typescript-eslint/no-explicit-any": "off",
@@ -264,8 +253,6 @@ const typeScriptRules = acceptTypeScriptRules({
 		overrides: { parameterProperties: "explicit" },
 	} ],
 	"@typescript-eslint/explicit-module-boundary-types": "off",
-	"@typescript-eslint/lines-between-class-members": [ "warn", "always", { exceptAfterSingleLine: true } ],
-	"@typescript-eslint/member-delimiter-style": "warn",
 	// nb: This is not simply a style rule, as the recommended style enforces contravariance instead
 	// of bivariance.
 	// https://github.com/microsoft/TypeScript/pull/18654
@@ -283,7 +270,6 @@ const typeScriptRules = acceptTypeScriptRules({
 	"@typescript-eslint/prefer-function-type": "warn",
 	"@typescript-eslint/prefer-literal-enum-member": "warn",
 	"@typescript-eslint/prefer-ts-expect-error": "warn",
-	"@typescript-eslint/type-annotation-spacing": "warn",
 	"@typescript-eslint/unified-signatures": "warn",
 
 	"import/consistent-type-specifier-style": [ "warn", "prefer-top-level" ],
@@ -420,6 +406,7 @@ export default [
 		},
 		plugins: {
 			import: importPlugin,
+			"@stylistic": stylisticPlugin,
 		},
 	},
 
@@ -441,7 +428,8 @@ export default [
 	{
 		rules: {
 			...acceptRecommended(js.configs.recommended.rules),
-			...rules,
+			...formattingRules,
+			...javaScriptRules,
 		},
 	},
 
@@ -458,9 +446,7 @@ export default [
 		files: tsGlob,
 		ignores: [ "**/*.d.ts" ],
 		rules: {
-			...acceptRecommended(typeScriptPlugin.configs["eslint-recommended"].overrides[0].rules),
 			...acceptRecommended(typeScriptPlugin.configs["recommended-requiring-type-checking"].rules),
-			...typeScriptRules,
 			...typedTypeScriptRules,
 		},
 	},
