@@ -1,4 +1,4 @@
-import type { Format, NodeLoad, NodeResolve } from "./node-loader.js";
+import type { LoadHook, ModuleFormat, ResolveHook } from "node:module";
 import * as assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import * as fs from "node:fs/promises";
@@ -87,7 +87,9 @@ export default function module() { return acquire(${JSON.stringify(url)}); }\n`
 function maybeThen<Type, Result>(
 	maybePromise: MaybePromiseLike<Type>,
 	then: (value: Type) => Result,
-): MaybePromiseLike<Awaited<Result>> {
+// nb: This should probably be `PromiseLike` but `node:module` isn't typed correctly and for all
+// practical purposes this function returns promises.
+): MaybePromise<Awaited<Result>> {
 	// For the life of me, I can't figure out how to type this. `maybePromise` should probably also
 	// include `& { then?: never }` and maybe the primitives, but that causes other problems.
 	// @ts-expect-error -- I don't know how to type this
@@ -100,18 +102,20 @@ function maybeThen<Type, Result>(
 	}
 }
 
-function asString(sourceText: ArrayBuffer | Uint8Array | string) {
+function asString(sourceText: ArrayBuffer | Uint8Array | string | undefined) {
 	if (sourceText instanceof Buffer) {
 		return sourceText.toString("utf8");
 	} else if (typeof sourceText === "string") {
 		return sourceText;
+	} else if (sourceText === undefined) {
+		return "";
 	} else {
 		return Buffer.from(sourceText).toString("utf8");
 	}
 }
 
 /** @internal */
-export const resolve: NodeResolve = (specifier, context, nextResolve) => {
+export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 	// Forward root module to "hot:main"
 	if (context.parentURL === undefined) {
 		return maybeThen(nextResolve(specifier, context), result => ({
@@ -177,7 +181,7 @@ export const resolve: NodeResolve = (specifier, context, nextResolve) => {
 		assert.ok(resolution !== null);
 		const version = resolutionURL.searchParams.get("version");
 		assert.ok(version !== null);
-		const format = resolutionURL.searchParams.get("format") as Format | null;
+		const format = resolutionURL.searchParams.get("format") as ModuleFormat | null;
 		assert.ok(format !== null);
 		const params = new URLSearchParams([
 			[ "url", resolution ],
@@ -203,7 +207,7 @@ export const resolve: NodeResolve = (specifier, context, nextResolve) => {
 };
 
 /** @internal */
-export const load: NodeLoad = (urlString, context, nextLoad) => {
+export const load: LoadHook = (urlString, context, nextLoad) => {
 	if (urlString.startsWith("hot:")) {
 		const url = new URL(urlString);
 		switch (url.pathname) {

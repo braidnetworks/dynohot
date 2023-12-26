@@ -1,12 +1,12 @@
 import type { ExportIndirectEntry, ExportIndirectStarEntry, ExportStarEntry, ModuleRequestEntry } from "./binding.js";
 import type { ModuleController, ModuleExports, ModuleNamespace } from "./module.js";
-import type { Format } from "dynohot/node-loader";
+import type { ModuleFormat } from "node:module";
 
 /** @internal */
 export interface ModuleDeclaration {
 	readonly body: ModuleBody;
 	readonly meta: ImportMeta | null;
-	readonly format: Format;
+	readonly format: ModuleFormat;
 	readonly importAssertions: Record<string, string>;
 	readonly usesDynamicImport: boolean;
 	readonly indirectExportEntries: ReadonlyMap<string, {
