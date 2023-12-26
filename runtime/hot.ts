@@ -60,20 +60,21 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 	 */
 	readonly data?: Data | undefined;
 
-	#accepts: {
+	readonly #accepts: {
 		callback: ((modules: readonly ModuleNamespace[]) => Promise<void> | void) | undefined;
 		localEntries: readonly LocalModuleEntry[];
 	}[] = [];
 
-	#acceptsSelf: ((self: () => ModuleNamespace) => MaybePromise<void>)[] = [];
-	#declined = false;
+	readonly #acceptsSelf: ((self: () => ModuleNamespace) => MaybePromise<void>)[] = [];
 	// dispose & prune
-	#destructors: ((data: Data, prune?: boolean) => Promise<void> | void)[] = [];
-	#dynamicImports = new Set<ModuleController>();
-	#instance: ReloadableModuleInstance;
+	readonly #destructors: ((data: Data, prune?: boolean) => Promise<void> | void)[] = [];
+	readonly #dynamicImports = new Set<ModuleController>();
+	readonly #instance: ReloadableModuleInstance;
+	readonly #module;
+	readonly #usesDynamicImport;
+
+	#declined = false;
 	#invalidated = false;
-	#module;
-	#usesDynamicImport;
 
 	constructor(
 		module: unknown,
