@@ -11,9 +11,9 @@ new code against existing state.
 
 Other HMR solutions like Webpack and Vite exist, but due to their focus on web browsers it can be
 challenging to get them to run server-side apps. With the experimental nodejs loader API you can get
-HMR running with a simple `--loader dynohot` flag. You should probably also add
-`--enable-source-maps` because dynohot applies a [transformation](#transformation) to your source
-code.
+HMR running with a simple `--loader dynohot` [or `--import dynohot/register`] flag. You should
+probably also add `--enable-source-maps` because dynohot applies a [transformation](#transformation)
+to your source code.
 
 Note that your project *must* be using proper [JavaScript
 Modules](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules), i.e. `"type":
@@ -39,7 +39,7 @@ export const now = new Date();
 ```
 $ while true; do sleep 1; touch now.js; done &
 
-$ node --no-warnings=ExperimentalWarnings --loader dynohot main.js
+$ node --import dynohot/register main.js
 [hot] Loaded 1 new module, reevaluated 0 existing modules in 2ms.
 2023-08-07T23:49:45.693Z
 [hot] Loaded 1 new module, reevaluated 0 existing modules in 2ms.
