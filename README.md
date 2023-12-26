@@ -176,8 +176,17 @@ export declare class Hot<Data extends Record<keyof any, unknown>> {
 TYPESCRIPT
 ----------
 
-If you use TypeScript you can add the following triple-slash directive to a `*.d.ts` file in your
-project and `import.meta.hot` will be typed correctly.
+To use TypeScript source files directly under dynohot (instead of running transpiled JavaScript
+output files) you can chain another loader which provides this functionality. The author of this
+module created [`@loaderkit/ts`](https://github.com/braidnetworks/loaderkit/tree/main/packages/ts)
+which handles this and works well with dynohot.
+
+```
+node --import @loaderkit/ts/register --import dynohot/register ./main.ts
+```
+
+You can add the following triple-slash directive to a `*.d.ts` file in your project and
+`import.meta.hot` will be typed correctly.
 
 ```ts
 /// <reference types="dynohot/import-meta" />
