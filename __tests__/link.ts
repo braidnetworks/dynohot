@@ -13,6 +13,24 @@ test("as default", async () => {
 	await main.dispatch();
 });
 
+// Caused by a misreading of "16.2.1.5.3.1 InnerModuleEvaluation -> 16.b.i"
+test("circular evaluation order", async () => {
+	const main: TestModule = new TestModule(() =>
+		`import {} from ${first};
+		import {} from ${second};
+		globalThis.order += ";main";
+		expect(globalThis.order).toBe("undefined;main");`);
+	const first = new TestModule(() =>
+		`import {} from ${main};
+		globalThis.order += ";first";
+		expect(globalThis.order).toBe("undefined;main;first");`);
+	const second = new TestModule(() =>
+		`import {} from ${first};
+		globalThis.order += ";second";
+		expect(globalThis.order).toBe("undefined;main;first;second");`);
+	await main.dispatch();
+});
+
 // Caused due to invalid `relink` testing in the evaluation phase. We were relinking the module's
 // previous body to try `accept` handlers which would cause a link error.
 test("link error is recoverable from parent", async () => {

@@ -125,7 +125,6 @@ export function traverseDepthFirst<
 		assert.ok(state.ancestorIndex <= state.index);
 		if (state.ancestorIndex === state.index) {
 			const cycleNodes = stack.splice(stackIndex);
-			cycleNodes.reverse();
 			// Collect forward results from cycle nodes
 			let hasPromise = false as boolean;
 			const cyclicForwardResults = cycleNodes.map(node => {
