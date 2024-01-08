@@ -1,10 +1,6 @@
+import type { NotPromiseLike } from "./utility.js";
 import * as assert from "node:assert/strict";
 import Fn from "dynohot/functional";
-
-type NotPromiseLike =
-	null | undefined |
-	(bigint | boolean | number | object | string) &
-	{ then?: null | undefined | bigint | boolean | number | object | string };
 
 interface TraversalState<Result = unknown> {
 	readonly state: CyclicState<Result>;

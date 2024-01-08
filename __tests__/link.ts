@@ -77,3 +77,32 @@ test("hoisted functions run correctly", async () => {
 		hoisted();`);
 	await main.dispatch();
 });
+
+test("concurrent cyclic top-level await", async () => {
+	const main: TestModule = new TestModule(() =>
+		`import {} from ${left};
+		import {} from ${right};
+		import.meta.hot.accept();`);
+	const left: TestModule = new TestModule(() =>
+		`import { async } from ${async};
+		import {} from ${right};
+		await async();`);
+	const right: TestModule = new TestModule(() =>
+		`import { async } from ${async};
+		import {} from ${left};
+		await async();`);
+	const async = new TestModule(() =>
+		`let resolve;
+		let ii = 0;
+		const promise = new Promise(fulfill => resolve = fulfill);
+		export function async() {
+			if (++ii === 2) {
+				resolve();
+			}
+			return promise;
+		}`);
+	await main.dispatch();
+	async.update();
+	const result = await main.releaseUpdate();
+	expect(result?.type).toBe(UpdateStatus.success);
+});

@@ -34,19 +34,19 @@ interface ModuleStateLinked {
 	readonly status: ModuleStatus.linked;
 	readonly continuation: ModuleContinuation;
 	readonly environment: ModuleEnvironment;
-	readonly completion: WithResolvers<void>;
+	readonly completion: WithResolvers<undefined>;
 }
 
 interface ModuleStateEvaluating {
 	readonly status: ModuleStatus.evaluating;
 	readonly environment: ModuleEnvironment;
-	readonly completion: WithResolvers<void>;
+	readonly completion: WithResolvers<undefined>;
 }
 
 interface ModuleStateEvaluatingAsync {
 	readonly status: ModuleStatus.evaluatingAsync;
 	readonly environment: ModuleEnvironment;
-	readonly completion: WithResolvers<void>;
+	readonly completion: WithResolvers<undefined>;
 }
 
 interface ModuleStateEvaluated {
@@ -169,8 +169,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 				status: ModuleStatus.linked,
 				continuation: this.state.continuation,
 				environment: this.state.environment,
-				// eslint-disable-next-line @typescript-eslint/no-invalid-void-type
-				completion: withResolvers<void>(),
+				completion: withResolvers<undefined>(),
 			};
 			this.state.completion.promise.catch(() => {});
 			if (continuation.async) {
@@ -237,7 +236,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		}
 	}
 
-	evaluate() {
+	evaluate(): MaybePromise<undefined> {
 		switch (this.state.status) {
 			case ModuleStatus.linked: {
 				const { completion, continuation } = this.state;
@@ -252,7 +251,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 						try {
 							const next = await continuation.iterator.next();
 							assert.ok(next.done);
-							completion.resolve();
+							completion.resolve(undefined);
 							this.state = {
 								status: ModuleStatus.evaluated,
 								environment: this.state.environment,
@@ -276,7 +275,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 						};
 						const next = continuation.iterator.next();
 						assert.ok(next.done);
-						completion.resolve();
+						completion.resolve(undefined);
 						this.state = {
 							status: ModuleStatus.evaluated,
 							environment: this.state.environment,

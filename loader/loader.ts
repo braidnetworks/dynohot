@@ -1,9 +1,10 @@
-import type { LoadHook, ModuleFormat, ResolveHook } from "node:module";
+import type { LoadHook, ModuleFormat, ResolveFnOutput, ResolveHook } from "node:module";
 import * as assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import * as fs from "node:fs/promises";
 import convertSourceMap from "convert-source-map";
 import Fn from "dynohot/functional";
+import { maybeThen } from "dynohot/runtime/utility";
 import { transformModuleSource } from "./transform.js";
 
 export type { Hot } from "dynohot/hot";
@@ -75,33 +76,6 @@ export default function module() { return acquire(${JSON.stringify(url)}); }\n`
 	);
 };
 
-/**
- * Resolvers are ~allowed~ to return promises, but actually they shouldn't. nodejs accidentally
- * locked themselves into a promise-based API but then the `import.meta.resolve` specification
- * changed to be synchronous. So they work around it with some horrific `Atomics.wait` thing which
- * hard locks the thread until the promise resolves.
- *
- * This utility is used to detect a promise from an underlying loader and `then` it, or just execute
- * the callback synchronously.
- */
-function maybeThen<Type, Result>(
-	maybePromise: MaybePromiseLike<Type>,
-	then: (value: Type) => Result,
-// nb: This should probably be `PromiseLike` but `node:module` isn't typed correctly and for all
-// practical purposes this function returns promises.
-): MaybePromise<Awaited<Result>> {
-	// For the life of me, I can't figure out how to type this. `maybePromise` should probably also
-	// include `& { then?: never }` and maybe the primitives, but that causes other problems.
-	// @ts-expect-error -- I don't know how to type this
-	if (typeof maybePromise.then === "function") {
-		// @ts-expect-error -- I don't know how to type this
-		return maybePromise.then(then);
-	} else {
-		// @ts-expect-error -- I don't know how to type this
-		return then(maybePromise);
-	}
-}
-
 function asString(sourceText: ArrayBuffer | Uint8Array | string | undefined) {
 	if (sourceText instanceof Buffer) {
 		return sourceText.toString("utf8");
@@ -118,9 +92,12 @@ function asString(sourceText: ArrayBuffer | Uint8Array | string | undefined) {
 export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 	// Forward root module to "hot:main"
 	if (context.parentURL === undefined) {
-		return maybeThen(nextResolve(specifier, context), result => ({
-			url: `hot:main?url=${encodeURIComponent(result.url)}`,
-		}));
+		return maybeThen(function*() {
+			const result: ResolveFnOutput = yield nextResolve(specifier, context);
+			return {
+				url: `hot:main?url=${encodeURIComponent(result.url)}`,
+			};
+		});
 	}
 	// [static imports] Convert "hot:module?specifier=..." to "hot:module?url=..."
 	if (specifier.startsWith("hot:module?")) {
@@ -132,23 +109,23 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 		const resolutionSpecifier = resolutionURL.searchParams.get("specifier");
 		assert.ok(resolutionSpecifier !== null);
 		const importAssertions = extractImportAssertions(resolutionURL.searchParams);
-		return maybeThen(
-			nextResolve(resolutionSpecifier, {
+		return maybeThen(function*() {
+			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
 				...context,
 				parentURL: parentModuleURL,
 				importAssertions,
-			}),
-			result => {
-				const params = new URLSearchParams([
-					[ "url", result.url ],
-					...Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"),
-				]);
-				return {
-					...result,
-					importAssertions: {},
-					url: `hot:module?${String(params)}`,
-				};
 			});
+			const params = new URLSearchParams([
+				[ "url", result.url ],
+				...Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"),
+			]);
+			return {
+				...result,
+				importAssertions: {},
+				url: `hot:module?${String(params)}`,
+			};
+		});
+
 	// [dynamic import] Convert "hot:module?specifier=..." to "hot:module?url=..."
 	} else if (specifier.startsWith("hot:import?")) {
 		const resolutionURL = new URL(specifier);
@@ -157,23 +134,23 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 		const parentModuleURL = resolutionURL.searchParams.get("parent");
 		assert.ok(parentModuleURL !== null);
 		const importAssertions = extractImportAssertions(resolutionURL.searchParams);
-		return maybeThen(
-			nextResolve(resolutionSpecifier, {
+		return maybeThen(function*() {
+			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
 				...context,
 				parentURL: parentModuleURL,
 				importAssertions,
-			}),
-			result => {
-				const params = new URLSearchParams([
-					[ "url", result.url ],
-					...Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"),
-				]);
-				return {
-					...result,
-					importAssertions: {},
-					url: `hot:module?${String(params)}`,
-				};
 			});
+			const params = new URLSearchParams([
+				[ "url", result.url ],
+				...Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"),
+			]);
+			return {
+				...result,
+				importAssertions: {},
+				url: `hot:module?${String(params)}`,
+			};
+		});
+
 	// [file watcher] Convert "hot:reload?url=..." to "hot:module?url=..."
 	} else if (specifier.startsWith("hot:reload?")) {
 		const resolutionURL = new URL(specifier);

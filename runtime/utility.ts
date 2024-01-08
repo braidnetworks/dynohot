@@ -2,6 +2,13 @@ import * as assert from "node:assert";
 import { createRequire } from "node:module";
 import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import Fn from "dynohot/functional";
+
+/** @internal */
+export type NotPromiseLike =
+	null | undefined |
+	(bigint | boolean | number | object | string) &
+	{ then?: null | undefined | bigint | boolean | number | object | string };
 
 /** @internal */
 export const moduleNamespacePropertyDescriptor = {
@@ -88,25 +95,47 @@ export function discriminatedTypePredicate<Type extends { type: unknown }, Check
 }
 
 /**
- * Returns a delegate iterable to an array which invokes a rollback function on the iterated
- * elements if iteration didn't complete [due to an exception hopefully].
- * @internal
+ * Given an iterable of "maybe" promises this returns either `undefined` or a promise indicating
+ * that all the yielded promises have resolved.
  */
-export function *iterateWithRollback<Type>(vector: readonly Type[], rollback: (previous: Iterable<Type>) => void) {
-	let ii = 0;
-	try {
-		for (; ii < vector.length; ++ii) {
-			yield vector[ii]!;
-		}
-	} finally {
-		if (ii !== vector.length) {
-			rollback(function*() {
-				for (let jj = ii; jj >= 0; --jj) {
-					yield vector[jj]!;
-				}
-			}());
-		}
+export function maybeAll(maybePromises: Iterable<MaybePromise<undefined>>): MaybePromise<undefined> {
+	const promises = Array.from(Fn.filter(maybePromises));
+	if (promises.length > 0) {
+		return async function() {
+			// Don't continue until all settled
+			await Promise.allSettled(promises);
+			// Throw on failure
+			await Promise.all(promises);
+		}();
 	}
+}
+
+/**
+ * Very simple version of something like `gensync`. For functions which might be async, but probably
+ * aren't.
+ */
+export function maybeThen<Return, Async extends NotPromiseLike>(
+	task: () => Generator<MaybePromise<Async>, MaybePromise<Return>, Async>,
+): MaybePromise<Return> {
+	const iterator = task();
+	let next = iterator.next();
+	while (!next.done) {
+		if (
+			next.value != null &&
+			typeof next.value.then === "function"
+		) {
+			// We are now a promise
+			return async function() {
+				while (!next.done) {
+					next = iterator.next(await next.value);
+				}
+				return next.value;
+			}();
+		}
+		// Continue synchronously
+		next = iterator.next(next.value satisfies MaybePromise<Async> as Async);
+	}
+	return next.value;
 }
 
 const cwd = process.cwd();

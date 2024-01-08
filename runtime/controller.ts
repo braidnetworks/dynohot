@@ -9,7 +9,7 @@ import { dispose, isAccepted, isAcceptedSelf, isDeclined, isInvalidated, prune, 
 import { ReloadableModuleInstance } from "./instance.js";
 import { ModuleStatus } from "./module.js";
 import { makeAcquireVisitIndex, makeTraversalState, traverseDepthFirst } from "./traverse.js";
-import { debounceAsync, debounceTimer, discriminatedTypePredicate, evictModule, iterateWithRollback, makeRelative, plural } from "./utility.js";
+import { debounceAsync, debounceTimer, discriminatedTypePredicate, evictModule, makeRelative, maybeAll, maybeThen, plural } from "./utility.js";
 import { FileWatcher } from "./watcher.js";
 
 /** @internal */
@@ -262,29 +262,28 @@ export class ReloadableModuleController implements AbstractModuleController {
 					}
 					return node.iterate();
 				},
-				async cycleNodes => {
+				cycleNodes => maybeThen(function*() {
 					// Instantiate the cycle (cannot fail)
 					for (const node of cycleNodes) {
-						const maybe = node.select().instantiate();
-						if (maybe) {
-							await maybe;
-						}
+						yield node.select().instantiate();
 					}
 					// Link the cycle
-					const withRollback = iterateWithRollback(cycleNodes, nodes => {
-						for (const node of nodes) {
-							if (node.select().unlink()) {
-								node.current = undefined;
+					for (let ii = 0; ii < cycleNodes.length; ++ii) {
+						const node = cycleNodes[ii]!;
+						try {
+							yield node.select().link();
+						} catch (error) {
+							// Unlink failed cycle nodes
+							for (let jj = ii; jj < cycleNodes.length; ++jj) {
+								if (node.select().unlink()) {
+									node.current = undefined;
+								}
 							}
-						}
-					});
-					for (const node of withRollback) {
-						const maybe = node.select().link();
-						if (maybe) {
-							await maybe;
+							throw error;
 						}
 					}
-				},
+					return undefined;
+				}),
 				pendingNodes => {
 					for (const node of pendingNodes) {
 						if (node.select().unlink()) {
@@ -301,18 +300,15 @@ export class ReloadableModuleController implements AbstractModuleController {
 					node.traversal = traversal;
 					return node.iterate();
 				},
-				async cycleNodes => {
-					for (const node of cycleNodes) {
+				cycleNodes => maybeAll(
+					Fn.map(cycleNodes, node => {
 						const current = node.select();
 						if (current === node.staging) {
 							node.staging = undefined;
 						}
-						const maybe = current.evaluate();
-						if (maybe) {
-							await maybe;
-						}
-					}
-				});
+						return current.evaluate();
+					}),
+				));
 		}
 	}
 
@@ -568,7 +564,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 							controller => controller.pending,
 							controller => controller.previous ?? controller.pending);
 					},
-					async (cycleNodes, forwardResults: readonly boolean[]) => {
+					(cycleNodes, forwardResults: readonly boolean[]) => maybeThen(function*() {
 						let hasUpdate = Fn.some(forwardResults);
 						if (!hasUpdate) {
 							for (const node of cycleNodes) {
@@ -583,22 +579,16 @@ export class ReloadableModuleController implements AbstractModuleController {
 							for (const node of cycleNodes) {
 								const pending = node.select(controller => controller.pending);
 								node.temporary = pending.clone();
-								const maybe = node.temporary.instantiate();
-								if (maybe) {
-									await maybe;
-								}
+								yield node.temporary.instantiate();
 								instantiated.push(node);
 							}
 							for (const node of cycleNodes) {
 								const temporary = node.select(controller => controller.temporary);
-								const maybe = temporary.link(controller => controller.temporary ?? controller.pending);
-								if (maybe) {
-									await maybe;
-								}
+								yield temporary.link(controller => controller.temporary ?? controller.pending);
 							}
 						}
 						return hasUpdate;
-					});
+					}));
 
 			} catch (error) {
 				rollback();
@@ -693,31 +683,33 @@ export class ReloadableModuleController implements AbstractModuleController {
 						}
 					}
 					// 3) Evaluate
-					const withRollback = iterateWithRollback(cycleNodes, nodes => {
-						for (const node of nodes) {
-							const current = node.select();
-							assert.ok(current.state.status === ModuleStatus.evaluated);
-							if (current.state.evaluationError !== undefined) {
-								node.current = node.previous;
-							}
-						}
-					});
-					for (const node of withRollback) {
+					const maybe = maybeAll(Fn.map(cycleNodes, node => maybeThen(function*() {
 						const current = node.select();
 						if (node.previous !== undefined && current.declaration === node.previous.declaration) {
 							++reevaluations;
 						} else {
 							++loads;
 						}
-						const maybe = current.evaluate();
-						if (maybe) {
-							await maybe;
+						try {
+							yield current.evaluate();
+						} catch (error) {
+							const current = node.select();
+							assert.ok(current.state.status === ModuleStatus.evaluated);
+							if (current.state.evaluationError !== undefined) {
+								node.current = node.previous;
+							}
+							throw error;
 						}
 						node.pending = undefined;
 						if (current === node.staging) {
 							node.staging = undefined;
 						}
+						return undefined;
+					})));
+					if (maybe) {
+						await maybe;
 					}
+
 					// Try self-accept
 					const invalidated: ReloadableModuleController[] = [];
 					for (const node of cycleNodes) {

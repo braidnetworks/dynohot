@@ -63,6 +63,7 @@ export class TestModule {
 	async dispatch() {
 		assert.equal(this.environment, undefined);
 		const context = createContext();
+		context.console = console;
 		const environment: Partial<Environment> = {
 			context,
 			pending: [],
