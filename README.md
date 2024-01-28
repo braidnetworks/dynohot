@@ -169,6 +169,11 @@ export declare class Hot<Data extends Record<keyof any, unknown>> {
      * the dependency graph entirely.
      */
     prune(onPrune: () => Promise<void> | void): void;
+
+    /**
+     * Listen for informative messages which are sent to `console`.
+     */
+    on(event: "message", callback: (message: string, ...params: unknown[]) => void): () => void;
 }
 ```
 
@@ -279,6 +284,17 @@ hot?.dispose(data => {
 });
 ```
 
+
+OPTIONS
+-------
+
+You can pass options to dynohot using `--import dynohot/register?option=value` or `--loader dynohot/?option=value`.
+
+* `ignore` - Pass `?ignore=regexpPattern` to explicitly ignore certain file paths. By default this is
+  `ignore=[/\]node_modules[/\]`.
+* `silent` - Pass `?silent` to prevent logging messages to stderr console. You might want this if
+  you're using something like Winston or Pino. Be sure to use `import.meta.on("message", ...)` to
+  raise informative dynohot messages to the developer's attention.
 
 TRANSFORMATION
 --------------

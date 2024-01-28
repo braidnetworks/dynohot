@@ -3,6 +3,8 @@ import type { LoadedModuleRequestEntry, ModuleBody, ModuleDeclaration } from "./
 import type { AbstractModuleController, ModuleNamespace } from "./module.js";
 import type { ModuleFormat } from "node:module";
 import * as assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { EOL } from "node:os";
 import Fn from "dynohot/functional";
 import { BindingType } from "./binding.js";
 import { dispose, isAccepted, isAcceptedSelf, isDeclined, isInvalidated, prune, tryAccept, tryAcceptSelf } from "./hot.js";
@@ -13,11 +15,20 @@ import { debounceAsync, debounceTimer, discriminatedTypePredicate, evictModule, 
 import { FileWatcher } from "./watcher.js";
 
 /** @internal */
-export function makeAcquire(dynamicImport: DynamicImport) {
-	const application: Application = {
+export function makeAcquire(dynamicImport: DynamicImport, params: Record<string, unknown>) {
+	const emitter = new EventEmitter;
+	const useLogs = params.silent === undefined;
+	const application: HotApplication = {
 		dynamicImport,
+		emitter,
 		requestUpdate: defaultRequestUpdate,
 		requestUpdateResult: defaultRequestUpdateResult,
+		log(message, ...params) {
+			if (useLogs) {
+				console.error(`[hot] ${message}`, ...params);
+			}
+			emitter.emit("message", message, ...params);
+		},
 	};
 	const modules = new Map<string, ReloadableModuleController>();
 	return function acquire(url: string) {
@@ -30,7 +41,6 @@ export function makeAcquire(dynamicImport: DynamicImport) {
 }
 
 function defaultRequestUpdate() {
-	console.error("[hot] Update requested before fully loaded.");
 	return Promise.resolve();
 }
 
@@ -39,8 +49,10 @@ async function defaultRequestUpdateResult(): Promise<never> {
 	throw new Error("Not fully loaded.");
 }
 
-interface Application {
+export interface HotApplication {
 	dynamicImport: DynamicImport;
+	emitter: EventEmitter;
+	log: (message: string, ...params: any[]) => void;
 	requestUpdate: () => Promise<void>;
 	requestUpdateResult: () => Promise<UpdateResult>;
 }
@@ -110,34 +122,40 @@ interface InvalidationChain {
 	next: readonly InvalidationChain[] | undefined | null;
 }
 
-function logUpdate(update: UpdateResult) {
+function logUpdate(app: HotApplication, update: UpdateResult) {
 	if (update === undefined) {
 		return;
 	}
 	switch (update.type) {
 		case UpdateStatus.declined:
-			console.error(`[hot] A pending update was explicitly declined:\n${update.declined.map(module => `- ${makeRelative(module.url)}`).join("\n")}`);
+			app.log(
+				"A pending update was explicitly declined:" +
+				update.declined.map(() => `${EOL}- %s`).join(),
+				...update.declined.map(declined => makeRelative(declined.url)));
 			break;
 
 		case UpdateStatus.fatalError:
-			console.error("[hot] A fatal error was encountered. The application should be restarted!");
+			app.log("A fatal error was encountered. The application should be restarted!");
 			break;
 
 		case UpdateStatus.evaluationFailure: {
 			const { duration, loads, reevaluations } = update.stats();
 			const ms = Math.round(duration);
-			console.error(`[hot] Loaded ${loads} new ${plural("module", loads)}, reevaluated ${reevaluations} existing ${plural("module", reevaluations)} in ${ms}ms.`);
-			console.error("[hot] Caught evaluation error:", update.error);
+			app.log(`Loaded %d new ${plural("module", loads)}, reevaluated %d existing ${plural("module", reevaluations)} in %dms.`, loads, reevaluations, ms);
+			app.log("Caught evaluation error:", update.error);
 			break;
 		}
 
 		case UpdateStatus.linkError: {
 			const { error } = update;
-			console.error("[hot] Caught link error:");
 			if (error instanceof SyntaxError && "url" in error) {
-				console.error(`${error.name}: ${error.message}\n    at (${String(error.url)})`);
+				app.log(
+					"Caught link error:" + EOL +
+					"%s: %s" + EOL +
+					"    at (%s)",
+					error.name, error.message, error.url);
 			} else {
-				console.error(error);
+				app.log(`Caught link error:${EOL}%O`, error);
 			}
 			break;
 		}
@@ -145,43 +163,47 @@ function logUpdate(update: UpdateResult) {
 		case UpdateStatus.success: {
 			const { duration, loads, reevaluations } = update.stats();
 			const ms = Math.round(duration);
-			console.error(`[hot] Loaded ${loads} new ${plural("module", loads)}, reevaluated ${reevaluations} existing ${plural("module", reevaluations)} in ${ms}ms.`);
+			app.log(`Loaded %d new ${plural("module", loads)}, reevaluated %d existing ${plural("module", reevaluations)} in %dms.`, loads, reevaluations, ms);
 			break;
 		}
 
 		case UpdateStatus.unaccepted: {
-			// Nice:
-			// https://stackoverflow.com/questions/4965335/how-to-print-binary-tree-diagram-in-java/8948691#8948691
-			const logChain = (chain: InvalidationChain, prefix = "", childrenPrefix = "") => {
-				const suffix = chain.next === undefined ? " 🔄" : "";
-				console.error(`  ${prefix}[${chain.modules.map(module => makeRelative(module.url)).join(", ")}]${suffix}`);
-				if (chain.next === null) {
-					console.error(`  ${childrenPrefix}[...]`);
-				} else if (chain.next !== undefined) {
-					for (const [ ii, child ] of chain.next.entries()) {
-						if (ii === chain.next.length - 1) {
-							logChain(child, `${childrenPrefix}└─ `, `${childrenPrefix}   `);
-						} else {
-							logChain(child, `${childrenPrefix}├─ `, `${childrenPrefix}│  `);
-						}
-					}
-				}
-			};
-			console.error("[hot] A pending update was not accepted, and reached the root module:");
-			for (const chain of update.chain) {
-				logChain(chain);
-			}
+			const messages = [ ...Fn.transform(update.chain, flattenInvalidationTree) ];
+			app.log(
+				"A pending update was not accepted, and reached the root module:" +
+				messages.map(([ message ]) => `${EOL}${message}`).join(""),
+				...Fn.transform(messages, ([ , ...params ]) => params));
 			break;
 		}
 
 		case UpdateStatus.unacceptedEvaluation: {
 			const { duration, loads, reevaluations } = update.stats();
 			const ms = Math.round(duration);
-			console.error(`[hot] Loaded ${loads} new ${plural("module", loads)}, reevaluated ${reevaluations} existing ${plural("module", reevaluations)} in ${ms}ms.`);
-			console.error("[hot] Unaccepted update reached the root module. The application should be restarted!");
+			app.log(`Loaded %d new ${plural("module", loads)}, reevaluated %d existing ${plural("module", reevaluations)} in %dms.`, loads, reevaluations, ms);
+			app.log("Unaccepted update reached the root module. The application should be restarted!");
 			break;
 		}
+	}
+}
 
+// Nice:
+// https://stackoverflow.com/questions/4965335/how-to-print-binary-tree-diagram-in-java/8948691#8948691
+function *flattenInvalidationTree(chain: InvalidationChain, prefix = "", childrenPrefix = ""): Iterable<[ string, ...unknown[] ]> {
+	const suffix = chain.next === undefined ? " 🔄" : "";
+	yield [
+		`  ${prefix}[${chain.modules.map(() => "%s").join(", ")}]${suffix}`,
+		...chain.modules.map(module => makeRelative(module.url)),
+	];
+	if (chain.next === null) {
+		yield [ `  %s${childrenPrefix}[...]` ];
+	} else if (chain.next !== undefined) {
+		for (const [ ii, child ] of chain.next.entries()) {
+			if (ii === chain.next.length - 1) {
+				yield* flattenInvalidationTree(child, `${childrenPrefix}└─ `, `${childrenPrefix}   `);
+			} else {
+				yield* flattenInvalidationTree(child, `${childrenPrefix}├─ `, `${childrenPrefix}│  `);
+			}
+		}
 	}
 }
 
@@ -207,7 +229,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 	private version = 0;
 
 	constructor(
-		public readonly application: Application,
+		public readonly application: HotApplication,
 		public readonly url: string,
 	) {
 		const watcher = new FileWatcher();
@@ -227,7 +249,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 				try {
 					await import(`hot:reload?${String(params)}`);
 				} catch (error) {
-					console.log(error);
+					this.application.log(`Error in module '%s':${EOL}%O`, this.url, error);
 					return;
 				}
 				void this.application.requestUpdate();
@@ -240,7 +262,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 		assert.equal(this.application.requestUpdate, defaultRequestUpdate);
 		this.application.requestUpdate = debounceTimer(100, debounceAsync(async () => {
 			const update = await this.requestUpdate();
-			logUpdate(update);
+			logUpdate(this.application, update);
 		}));
 		this.application.requestUpdateResult = () => this.requestUpdate();
 
@@ -655,16 +677,17 @@ export class ReloadableModuleController implements AbstractModuleController {
 					// 1) Instantiate
 					for (const node of cycleNodes) {
 						const pending = node.select(controller => controller.pending);
-						const data = await async function() {
+						const data = await (async () => {
 							try {
 								return node.current === undefined ? undefined : await dispose(node.current);
 							} catch (error) {
-								console.error(`[hot] Caught error in module '${node.url}' during dispose:`);
-								console.error(error);
+								this.application.log(
+									`Caught error in module '%s' during dispose:${EOL}%O`,
+									node.url, error);
 								dispatchLinkErrorType = UpdateStatus.fatalError;
 								throw error;
 							}
-						}();
+						})();
 						if (node.current === pending) {
 							node.current = node.current.clone();
 						} else {
@@ -770,8 +793,9 @@ export class ReloadableModuleController implements AbstractModuleController {
 					try {
 						await prune(current);
 					} catch (error) {
-						console.error(`[hot] Caught error in module '${controller.url}' during prune:`);
-						console.error(error);
+						this.application.log(
+							`Caught error in module '%s' during prune:${EOL}%O`,
+							controller.url, error);
 						// eslint-disable-next-line no-unsafe-finally
 						return this.fatalError = { type: UpdateStatus.fatalError, error };
 					}

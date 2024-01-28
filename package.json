@@ -4,8 +4,10 @@
 	"version": "1.1.0",
 	"exports": {
 		".": "./dist/loader/loader.js",
+		"./?": "./dist/loader/loader.js",
 		"./?*": "./dist/loader/loader.js?*",
 		"./register": "./dist/loader/register.js",
+		"./register?": "./dist/loader/register.js",
 		"./register?*": "./dist/loader/register.js?*",
 		"./import-meta": {
 			"types": "./import-meta.d.ts"
@@ -18,7 +20,7 @@
 	"scripts": {
 		"lint": "eslint --max-warnings=0 --report-unused-disable-directives .",
 		"prepare": "rm -rf dist && tsc -b",
-		"test": "NODE_OPTIONS='--no-warnings --experimental-vm-modules' npx jest --silent"
+		"test": "NODE_OPTIONS='--no-warnings --experimental-vm-modules' npx jest"
 	},
 	"dependencies": {
 		"@babel/generator": "^7.23.0",

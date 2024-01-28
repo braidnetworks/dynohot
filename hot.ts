@@ -1,12 +1,16 @@
+/* eslint-disable @typescript-eslint/no-useless-empty-export */
+/* eslint-disable @typescript-eslint/prefer-readonly */
 /* eslint-disable @stylistic/indent */
 type ModuleNamespace = Record<string, unknown>;
 export declare class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unknown>> {
+    #private;
     /**
      * This is the `data` object passed to the `dispose` handler of the previous `Hot` instance.
      * You can use this to stash references like an HTTP server or database connection for the
      * next instance of your module.
      */
-    readonly data?: Data;
+    readonly data?: Data | undefined;
+    constructor(module: unknown, instance: unknown, usesDynamicImport: boolean, data?: Data);
     /**
      * Accept updates for this module. When any unaccepted dependencies are updated this module will
      * be reevaluated without notifying any dependents.
@@ -43,4 +47,9 @@ export declare class Hot<Data extends Record<keyof any, unknown> = Record<keyof 
      * graph entirely.
      */
     prune(onPrune: () => Promise<void> | void): void;
+    /**
+     * Listen for informative messages which are sent to `console`.
+     */
+    on(event: "message", callback: (message: string, ...params: unknown[]) => void): () => void;
 }
+export {};

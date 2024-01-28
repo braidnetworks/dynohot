@@ -14,7 +14,7 @@ const ignoreString = self.searchParams.get("ignore");
 const ignorePattern = ignoreString === null ? /[/\\]node_modules[/\\]/ : new RegExp(ignoreString);
 
 const root = String(new URL("..", self));
-const runtimeURL = `${root}runtime/runtime.js`;
+const runtimeURL = `${root}runtime/runtime.js?${String(self.searchParams)}`;
 
 type ImportAssertions = Record<string, string>;
 

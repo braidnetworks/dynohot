@@ -1,6 +1,7 @@
 import type { ReloadableModuleInstance } from "./instance.js";
 import type { ModuleController } from "./module.js";
 import * as assert from "node:assert/strict";
+import { EOL } from "node:os";
 import Fn from "dynohot/functional";
 import { ReloadableModuleController } from "./controller.js";
 import { ModuleStatus } from "./module.js";
@@ -126,9 +127,14 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 										yield accepts.localEntries[ii]!.specifier;
 									}
 								}));
-							console.error(`[hot] Warning: ${plural("specifier", specifiers.length)} ${specifiers.map(specifier => JSON.stringify(specifier)).join(", ")} from ${makeRelative(hot.#module.url)} could not be resolved.`);
+							hot.#module.application.log(
+								`Warning: ${plural("specifier", specifiers.length)} ${specifiers.map(() => "%s").join(", ")} from %s could not be resolved.`,
+								...specifiers.map(specifier => JSON.stringify(specifier)),
+								makeRelative(hot.#module.url));
 							if (accepts.localEntries.length > 1) {
-								console.error(`[hot] The entire accept group of: ${accepts.localEntries.map(entry => JSON.stringify(entry.specifier)).join(", ")} will be ignored.`);
+								hot.#module.application.log(
+									`The entire accept group of: ${accepts.localEntries.map(() => "%s").join(", ")} will be ignored.`,
+									...accepts.localEntries.map(entry => JSON.stringify(entry.specifier)));
 							}
 						}
 						return [];
@@ -185,8 +191,11 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 						try {
 							await accepts.callback(namespaces);
 						} catch (error) {
-							console.error(`[hot] Caught error in module '${hot.#module.url}' during accept of [${accepts.localEntries.map(entry => `'${entry.specifier}'`).join(", ")}]:`);
-							console.error(error);
+							hot.#module.application.log(
+								`Caught error in module '%s' during accept of [${accepts.localEntries.map(() => "%s").join(", ")}]:${EOL}%O`,
+								hot.#module.url,
+								...accepts.localEntries.map(entry => `'${entry.specifier}'`),
+								error);
 							return false;
 						}
 						if (hot.#invalidated) {
@@ -206,8 +215,9 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 					try {
 						await callback(self);
 					} catch (error) {
-						console.error(`[hot] Caught error in module '${hot.#module.url}' during self-accept:`);
-						console.error(error);
+						hot.#module.application.log(
+							`Caught error in module '%s' during self-accept:${EOL}%O`,
+							hot.#module.url, error);
 						return false;
 					}
 				}
@@ -311,6 +321,18 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 				return onPrune();
 			}
 		});
+	}
+
+	/**
+	 * Listen for informative messages which are sent to `console`.
+	 */
+	on(event: "message", callback: (message: string, ...params: unknown[]) => void): () => void;
+
+	on(event: string, callback: (...args: any[]) => unknown) {
+		this.#module.application.emitter.addListener(event, callback);
+		return () => {
+			this.#module.application.emitter.removeListener(event, callback);
+		};
 	}
 }
 
