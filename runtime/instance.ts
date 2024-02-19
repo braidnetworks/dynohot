@@ -9,7 +9,6 @@ import { ReloadableModuleController } from "./controller.js";
 import { Hot, didDynamicImport } from "./hot.js";
 import { initializeEnvironment } from "./initialize.js";
 import { ModuleStatus } from "./module.js";
-import { makeAcquireVisitIndex } from "./traverse.js";
 import { moduleNamespacePropertyDescriptor, withResolvers } from "./utility.js";
 
 type ModuleState =
@@ -75,12 +74,9 @@ interface ModuleContinuationAsync {
 	readonly iterator: AsyncIterator<unknown, void, ModuleExports>;
 }
 
-const acquireLinkIndex = makeAcquireVisitIndex();
-
 /** @internal */
 export class ReloadableModuleInstance implements AbstractModuleInstance {
 	readonly reloadable = true;
-	linkIndex = 0;
 	state: ModuleState = { status: ModuleStatus.new };
 	dynamicImports: {
 		readonly controller: ReloadableModuleController;
@@ -161,7 +157,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 						module.state.status === ModuleStatus.linked ||
 						module.state.status === ModuleStatus.evaluated ||
 						module.state.status === ModuleStatus.evaluatingAsync);
-					return module.resolveExport(exportName, select);
+					return module.resolveExport(exportName, select, undefined);
 				});
 			const imports = Object.fromEntries(bindings);
 			const { continuation } = this.state;
@@ -205,7 +201,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 					module.state.status === ModuleStatus.linked ||
 					module.state.status === ModuleStatus.evaluated ||
 					module.state.status === ModuleStatus.evaluatingAsync);
-				return module.resolveExport(exportName, select);
+				return module.resolveExport(exportName, select, undefined);
 			});
 		if (this.state.status !== ModuleStatus.linked) {
 			this.state.environment.replace(Object.fromEntries(bindings));
@@ -381,7 +377,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 					for (const entry of instance.declaration.indirectExportEntries.values()) {
 						const instance = entry.moduleRequest.controller().select(select);
 						if (entry.binding.type === BindingType.indirectExport) {
-							const resolution = instance.resolveExport(entry.binding.name, select);
+							const resolution = instance.resolveExport(entry.binding.name, select, undefined);
 							assert.ok(resolution != null);
 							resolutions.set(entry.binding.as ?? entry.binding.name, resolution);
 						} else {
@@ -415,41 +411,30 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 	}
 
 	// 16.2.1.6.3 ResolveExport ( exportName [ , resolveSet ] )
-	resolveExport(exportName: string, select?: SelectModuleInstance) {
-		const [ release, linkIndex ] = acquireLinkIndex();
-		try {
-			return this.resolveExportInner(exportName, select, linkIndex);
-		} finally {
-			release();
-		}
-	}
-
-	resolveExportInner(exportName: string, select: SelectModuleInstance | undefined, linkIndex: number): Resolution {
+	resolveExport(
+		exportName: string,
+		select: SelectModuleInstance | undefined,
+		resolveSet: Map<ReloadableModuleInstance, Set<string>> | undefined = new Map,
+	): Resolution {
 		// 1. Assert: module.[[Status]] is not new.
 		assert.ok(this.state.status !== ModuleStatus.new);
 
 		// 2. If resolveSet is not present, set resolveSet to a new empty List.
 		// 3. For each Record { [[Module]], [[ExportName]] } r of resolveSet, do
-
-		// TODO: Finish this. `resolveSet` is responsible for detecting unresolved circular
-		// imports. For well-typed code it isn't a problem
-		const resolveSet = new Map<ReloadableModuleInstance, Set<any>>();
-		let imports = resolveSet.get(this);
-		if (imports === undefined) {
-			imports = new Set();
-			resolveSet.set(this, imports);
-		} else if (imports.has(exportName)) {
-			// a. If module and r.[[Module]] are the same Module Record and SameValue(exportName, r.
-			//    [[ExportName]]) is true, then
-			//   i. Assert: This is a circular import request.
-			//   ii. Return null.
-			return null;
+		const moduleResolveSet = resolveSet.get(this);
+		if (moduleResolveSet) {
+			if (moduleResolveSet.has(exportName)) {
+				// a. If module and r.[[Module]] are the same Module Record and SameValue(exportName, r.
+				//    [[ExportName]]) is true, then
+				//   i. Assert: This is a circular import request.
+				//   ii. Return null.
+				return null;
+			}
+			moduleResolveSet.add(exportName);
+		} else {
+			// 4. Append the Record { [[Module]]: module, [[ExportName]]: exportName } to resolveSet.
+			resolveSet.set(this, new Set([ exportName ]));
 		}
-		// 4. Append the Record { [[Module]]: module, [[ExportName]]: exportName } to resolveSet.
-		if (this.linkIndex === linkIndex) {
-			return null;
-		}
-		this.linkIndex = linkIndex;
 
 		// 5. For each ExportEntry Record e of module.[[LocalExportEntries]], do
 		const localExport = this.state.environment.exports[exportName];
@@ -476,7 +461,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			} else {
 				// 1. Assert: module imports a specific binding for this export.
 				// 2. Return importedModule.ResolveExport(e.[[ImportName]], resolveSet).
-				return importedModule.resolveExportInner(indirectExport.binding.name, select, linkIndex);
+				return importedModule.resolveExport(indirectExport.binding.name, select, resolveSet);
 			}
 		}
 		// 7. If SameValue(exportName, "default") is true, then
@@ -493,7 +478,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			// a. Let importedModule be GetImportedModule(module, e.[[ModuleRequest]]).
 			const importedModule = exportEntry.moduleRequest.controller().select(select);
 			// b. Let resolution be importedModule.ResolveExport(exportName, resolveSet).
-			const resolution = importedModule.resolveExportInner(exportName, select, linkIndex);
+			const resolution = importedModule.resolveExport(exportName, select, resolveSet);
 			// c. If resolution is ambiguous, return ambiguous.
 			if (resolution === undefined) {
 				return undefined;

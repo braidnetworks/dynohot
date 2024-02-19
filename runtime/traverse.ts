@@ -39,8 +39,13 @@ export const makeAcquireVisitIndex = function() {
 		return () => {
 			assert.ok(!lock);
 			lock = true;
-			const release = () => { lock = false; };
-			return [ release, ++currentVisitIndex ] as const;
+			const visitIndex = ++currentVisitIndex;
+			const release = () => {
+				assert.ok(lock);
+				assert.equal(currentVisitIndex, visitIndex);
+				lock = false;
+			};
+			return [ release, visitIndex ] as const;
 		};
 	};
 }();

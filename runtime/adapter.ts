@@ -9,7 +9,6 @@ import { ModuleStatus } from "./module.js";
  * @internal
  */
 export class AdapterModuleController implements AbstractModuleController, AbstractModuleInstance {
-	linkIndex = 0;
 	private readonly namespace: ResolvedBinding<ModuleNamespace>;
 	private readonly resolutions: ReadonlyMap<string, () => unknown>;
 	readonly reloadable = false;
@@ -47,10 +46,6 @@ export class AdapterModuleController implements AbstractModuleController, Abstra
 
 	resolveExport(exportName: string) {
 		return this.resolutions.get(exportName) ?? null;
-	}
-
-	resolveExportInner(exportName: string) {
-		return this.resolveExport(exportName);
 	}
 
 	select() {

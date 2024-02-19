@@ -58,6 +58,15 @@ test("infinite re-export", async () => {
 	await expect(main.dispatch()).rejects.toThrowError(SyntaxError);
 });
 
+test("circular indirect export", async () => {
+	const main = new TestModule(() =>
+		`import { name, indirect } from ${circular};`);
+	const circular: TestModule = new TestModule(() =>
+		`export { name as indirect } from ${circular};
+		export const name = null;`);
+	await main.dispatch();
+});
+
 // Babel checks this for us
 test("duplicate named export", async () => {
 	const main = new TestModule(() =>
@@ -79,7 +88,7 @@ test("hoisted functions run correctly", async () => {
 });
 
 test("concurrent cyclic top-level await", async () => {
-	const main: TestModule = new TestModule(() =>
+	const main = new TestModule(() =>
 		`import {} from ${left};
 		import {} from ${right};
 		import.meta.hot.accept();`);
@@ -105,4 +114,17 @@ test("concurrent cyclic top-level await", async () => {
 	async.update();
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
+});
+
+// Caused by incorrect optimization of `resolveSet`
+test("exported named module namespace", async () => {
+	const main = new TestModule(() =>
+		`import { ns } from ${nsExport};`);
+	const nsExport = new TestModule(() =>
+		`export * as ns from ${indirectExport}`);
+	const indirectExport = new TestModule(() =>
+		`export { name } from ${child}`);
+	const child = new TestModule(() =>
+		"export const name = null;");
+	await main.dispatch();
 });
