@@ -1,7 +1,7 @@
 {
 	"name": "dynohot",
 	"type": "module",
-	"version": "1.1.0",
+	"version": "1.1.1",
 	"exports": {
 		".": "./dist/loader/loader.js",
 		"./?": "./dist/loader/loader.js",
