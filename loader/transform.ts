@@ -131,12 +131,16 @@ function transformProgram(program: NodePath<t.Program>) {
 		] as [ string, string ][]);
 		const importSpecifier = `hot:module?${String(params)}`;
 		return specifierToBindings.get(importSpecifier) ?? function() {
-			const localName = `_${specifier.replaceAll(/[^A-Za-z0-9_$]/g, "_")}`;
+			const identifierFragment = specifier
+				// "$" becomes our escape character
+				.replaceAll("$", "$$")
+				// Replace (for example) "-" with "$002d"
+				.replaceAll(/[^A-Za-z0-9_]/g, char => `$${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
 			const bindings: BindingEntry[] = [];
 			specifierToBindings.set(importSpecifier, bindings);
 			importDeclarations.push({
 				bindings,
-				identifier: localName,
+				identifier: `_${identifierFragment}`,
 				importSpecifier,
 				specifier,
 			});
