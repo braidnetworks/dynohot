@@ -23,7 +23,8 @@ export interface ModuleDeclaration {
 /** @internal */
 export type ModuleBody = ModuleBodySync | ModuleBodyAsync;
 
-type DynamicImport = (specifier: string, importAssertions?: Record<string, string>) => Promise<ModuleNamespace>;
+/** @internal */
+export type DynamicImport = (specifier: string, importAssertions?: Record<string, string>) => Promise<ModuleNamespace>;
 
 interface ModuleBodySync {
 	async: false;
@@ -39,7 +40,7 @@ interface ModuleBodyAsync {
 }
 
 /** @internal */
-export type ModuleBodyYields = [ ModuleBodyImportsReplace, ModuleExports ] | undefined;
+export type ModuleBodyYields = ModuleBodyYieldScope | undefined;
 
 /** @internal */
 export type ModuleBodyYieldScope = [ ModuleBodyImportsReplace, ModuleExports ];

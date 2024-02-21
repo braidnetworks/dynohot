@@ -1,6 +1,6 @@
 import type { BindingEntry, ExportIndirectEntry, ExportIndirectStarEntry, ExportStarEntry } from "./binding.js";
-import type { LoadedModuleRequestEntry, ModuleBody, ModuleDeclaration } from "./declaration.js";
-import type { AbstractModuleController, ModuleNamespace } from "./module.js";
+import type { DynamicImport, LoadedModuleRequestEntry, ModuleBody, ModuleDeclaration } from "./declaration.js";
+import type { AbstractModuleController } from "./module.js";
 import type { ModuleFormat } from "node:module";
 import * as assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
@@ -56,8 +56,6 @@ export interface HotApplication {
 	requestUpdate: () => Promise<void>;
 	requestUpdateResult: () => Promise<UpdateResult>;
 }
-
-type DynamicImport = (specifier: string, importAssertions?: Record<string, string>) => Promise<ModuleNamespace>;
 
 /** @internal */
 export enum UpdateStatus {
