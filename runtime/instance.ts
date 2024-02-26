@@ -1,4 +1,4 @@
-import type { ModuleBodyYieldScope, ModuleBodyYields, ModuleDeclaration } from "./declaration.js";
+import type { ModuleDeclaration } from "./declaration.js";
 import type { Data } from "./hot.js";
 import type { AbstractModuleInstance, ModuleController, ModuleExports, Resolution, SelectModuleInstance } from "./module.js";
 import type { WithResolvers } from "./utility.js";
@@ -114,7 +114,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 				return (async () => {
 					const next = await iterator.next();
 					assert.equal(next.done, false);
-					const [ replace, exports ] = next.value satisfies ModuleBodyYields as ModuleBodyYieldScope;
+					const [ replace, exports ] = next.value!;
 					this.state = {
 						status: ModuleStatus.linking,
 						continuation: { async: true, iterator },
@@ -125,7 +125,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 				const iterator = this.declaration.body.execute(importMeta, dynamicImport);
 				const next = iterator.next();
 				assert.equal(next.done, false);
-				const [ replace, exports ] = next.value satisfies ModuleBodyYields as ModuleBodyYieldScope;
+				const [ replace, exports ] = next.value!;
 				this.state = {
 					status: ModuleStatus.linking,
 					continuation: { async: false, iterator },
