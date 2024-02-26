@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
-import { expect, test } from "@jest/globals";
+import { expect, jest, test } from "@jest/globals";
 import { UpdateStatus } from "dynohot/runtime/controller";
 import { TestModule } from "./__fixtures__/module.js";
 
@@ -127,4 +127,18 @@ test("exported named module namespace", async () => {
 	const child = new TestModule(() =>
 		"export const name = null;");
 	await main.dispatch();
+});
+
+// `ReloadableModuleController.dispatch` did not await existing capability if already running
+test("the halting problem", async () => {
+	const main: TestModule = new TestModule(() => `await import(${main});`);
+	const execution = Promise.race([
+		main.dispatch(),
+		new Promise(resolve => {
+			setTimeout(() => resolve(123), 0);
+		}),
+	]);
+	jest.advanceTimersByTime(1);
+	const result = await execution;
+	expect(result).toBe(123);
 });

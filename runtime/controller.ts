@@ -329,6 +329,8 @@ export class ReloadableModuleController implements AbstractModuleController {
 						return current.evaluate();
 					}),
 				));
+		} else if (this.current.state.status === ModuleStatus.evaluatingAsync) {
+			return this.current.state.completion.promise;
 		}
 	}
 
