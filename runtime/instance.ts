@@ -327,6 +327,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 
 	private async dynamicImport(specifier: string, importAssertions?: Record<string, string>) {
 		assert.ok(
+			this.state.status === ModuleStatus.linked ||
 			this.state.status === ModuleStatus.evaluating ||
 			this.state.status === ModuleStatus.evaluatingAsync ||
 			this.state.status === ModuleStatus.evaluated);

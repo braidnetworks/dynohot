@@ -140,3 +140,17 @@ test("the halting problem", async () => {
 	const result = await execution;
 	expect(result).toBe(123);
 });
+
+// `ReloadableModuleController.dispatch` did not await existing capability if already running
+test("hoisted function with dynamic import", async () => {
+	const main: TestModule = new TestModule(() =>
+		`import {} from ${first};
+		export function fn() {
+			import(${extra});
+		}`);
+	const first = new TestModule(() =>
+		`import { fn } from ${main};
+		await fn();`);
+	const extra = new TestModule(() => "");
+	await main.dispatch();
+});
