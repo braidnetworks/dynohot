@@ -1,6 +1,6 @@
 import type { NotPromiseLike } from "./utility.js";
 import * as assert from "node:assert/strict";
-import Fn from "dynohot/functional";
+import Fn, { mappedNumericComparator } from "dynohot/functional";
 
 interface TraversalState<Result = unknown> {
 	readonly state: CyclicState<Result>;
@@ -10,6 +10,7 @@ interface TraversalState<Result = unknown> {
 interface CyclicState<Result> {
 	readonly index: number;
 	ancestorIndex: number;
+	order: number;
 	forwardResults: Completion<readonly Collectable<Result>[]> | undefined;
 	result: Completion<Collectable<Result>> | undefined;
 }
@@ -87,6 +88,7 @@ export function traverseDepthFirst<
 		const holder = makeTraversalState<Result>(visitIndex, {
 			index: nodeIndex,
 			ancestorIndex: nodeIndex,
+			order,
 			forwardResults: undefined,
 			result: undefined,
 		});
@@ -124,8 +126,10 @@ export function traverseDepthFirst<
 		}();
 		// Join cyclic nodes
 		assert.ok(state.ancestorIndex <= state.index);
+		state.order = ++order;
 		if (state.ancestorIndex === state.index) {
 			const cycleNodes = stack.splice(stackIndex);
+			cycleNodes.sort(mappedNumericComparator(node => peek(node).state.order));
 			// Collect forward results from cycle nodes
 			let hasPromise = false as boolean;
 			const cyclicForwardResults = cycleNodes.map(node => {
@@ -200,6 +204,7 @@ export function traverseDepthFirst<
 
 	const [ release, visitIndex ] = acquireVisitIndex();
 	let index = 0;
+	let order = 0;
 	const stack: Node[] = [];
 	try {
 		const { result } = inner(root);

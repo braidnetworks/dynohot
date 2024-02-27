@@ -237,11 +237,24 @@ export function primitiveComparator<Type extends PrimitiveComparable>(left: Type
 }
 
 /**
+ * Comparator for numeric types.
+ * @internal
+ */
+export function numericComparator(left: number, right: number) {
+	return left - right;
+}
+
+/**
  * Creates a comparator from a mapping function and a comparator.
  * @internal
  */
 export function mappedComparator<Type, Result>(comparator: Comparator<Result>, map: (value: Type) => Result): Comparator<Type> {
 	return (left, right) => comparator(map(left), map(right));
+}
+
+/** @internal */
+export function mappedNumericComparator<Type>(map: (value: Type) => number) {
+	return mappedComparator(numericComparator, map);
 }
 
 /** @internal */

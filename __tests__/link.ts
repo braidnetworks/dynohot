@@ -18,17 +18,15 @@ test("circular evaluation order", async () => {
 	const main: TestModule = new TestModule(() =>
 		`import {} from ${first};
 		import {} from ${second};
-		globalThis.order += ";main";
-		expect(globalThis.order).toBe("undefined;main");`);
+		globalThis.order += ";main";`);
 	const first = new TestModule(() =>
 		`import {} from ${main};
-		globalThis.order += ";first";
-		expect(globalThis.order).toBe("undefined;main;first");`);
+		globalThis.order += ";first";`);
 	const second = new TestModule(() =>
 		`import {} from ${first};
-		globalThis.order += ";second";
-		expect(globalThis.order).toBe("undefined;main;first;second");`);
+		globalThis.order += ";second";`);
 	await main.dispatch();
+	expect(main.global.order).toBe("undefined;first;second;main");
 });
 
 // Caused due to invalid `relink` testing in the evaluation phase. We were relinking the module's
