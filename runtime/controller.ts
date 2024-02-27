@@ -193,7 +193,7 @@ function *flattenInvalidationTree(chain: InvalidationChain, prefix = "", childre
 		...chain.modules.map(module => makeRelative(module.url)),
 	];
 	if (chain.next === null) {
-		yield [ `  %s${childrenPrefix}[...]` ];
+		yield [ `  ${childrenPrefix}[...]` ];
 	} else if (chain.next !== undefined) {
 		for (const [ ii, child ] of chain.next.entries()) {
 			if (ii === chain.next.length - 1) {
