@@ -108,6 +108,10 @@ export function traverseDepthFirst<
 			} else {
 				hasPromise = true;
 				yield result.promise;
+				// nb: If we have a sibling which throws synchronously then this result is never
+				// collected into `Promise.all`. Therefore this promise is never awaited and a
+				// rejection will take down the process. It is explicitly marked as handled here.
+				result.promise.then(() => {}, () => {});
 			}
 		}));
 		// Detect promise or sync
@@ -212,7 +216,7 @@ export function traverseDepthFirst<
 		if (result.sync) {
 			return result.resolution.value as Join;
 		} else {
-			return result.promise.then(({ value: foobar }) => foobar) as Join;
+			return result.promise.then(({ value }) => value) as Join;
 		}
 	} catch (error) {
 		unwind?.(stack);

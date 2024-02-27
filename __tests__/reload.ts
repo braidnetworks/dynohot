@@ -180,3 +180,16 @@ test("new module node should work", async () => {
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
 });
+
+// Caused by dangling rejection in the sync case
+test("mixed color sibling rejection", async () => {
+	const main = new TestModule(() =>
+		`import {} from ${left};
+		import {} from ${right};`);
+	const left = new TestModule(() =>
+		`await undefined;
+		throw "async";`);
+	const right = new TestModule(() =>
+		'throw "sync";');
+	await expect(main.dispatch()).rejects.toEqual("sync");
+});

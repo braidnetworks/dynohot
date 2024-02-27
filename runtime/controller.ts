@@ -800,7 +800,9 @@ export class ReloadableModuleController implements AbstractModuleController {
 						return this.fatalError = { type: UpdateStatus.fatalError, error };
 					}
 					// Move the instance to staging to setup for `dispatch` in case it's re-imported
-					controller.staging = current.clone();
+					if (controller.staging === undefined) {
+						controller.staging = current.clone();
+					}
 					controller.current = undefined;
 					controller.previous = undefined;
 				}
