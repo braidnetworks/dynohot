@@ -705,19 +705,6 @@ export class ReloadableModuleController implements AbstractModuleController {
 							await maybe;
 						}
 					}
-
-					// Try self-accept
-					const invalidated: ReloadableModuleController[] = [];
-					for (const node of cycleNodes) {
-						if (node.previous !== undefined) {
-							const current = node.select();
-							const namespace = () => current.moduleNamespace()();
-							if (!await tryAcceptSelf(node.previous, namespace)) {
-								invalidated.push(node);
-							}
-						}
-					}
-
 					// 3) Evaluate
 					const maybe = maybeAll(Fn.map(cycleNodes, node => maybeThen(function*() {
 						const current = node.select();
@@ -746,6 +733,17 @@ export class ReloadableModuleController implements AbstractModuleController {
 						await maybe;
 					}
 
+					// Try self-accept
+					const invalidated: ReloadableModuleController[] = [];
+					for (const node of cycleNodes) {
+						if (node.previous !== undefined) {
+							const current = node.select();
+							const namespace = () => current.moduleNamespace()();
+							if (!await tryAcceptSelf(node.previous, namespace)) {
+								invalidated.push(node);
+							}
+						}
+					}
 					return { forwardResults, invalidated, treeDidUpdate: true };
 				});
 

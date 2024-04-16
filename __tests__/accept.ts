@@ -68,12 +68,3 @@ test("catch error from self-accept", async () => {
 	const result = await main.releaseUpdate();
 	expect(result?.type).toBe(UpdateStatus.success);
 });
-
-test("self-accept must run before reevaluation", async () => {
-	const main = new TestModule(() =>
-		"import.meta.hot.accept(() => globalThis.shutdown = true);");
-	await main.dispatch();
-	main.update(() => "expect(globalThis.shutdown).toBe(true);");
-	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
-});
