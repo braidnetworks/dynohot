@@ -73,7 +73,8 @@ server.on("request", someMiddlewareProvider);
 server.listen(8000);
 
 // 🔥 This is what you have to do. This is "self accepting".
-import.meta.hot?.accept(() => {
+import.meta.hot?.accept();
+import.meta.hot?.dispose(() => {
     server.close();
 });
 ```
