@@ -46,7 +46,6 @@ export class FileWatcher {
 					}
 				}),
 			};
-			// @ts-expect-error - https://nodejs.org/api/fs.html#watcherunref
 			holder.watcher.unref();
 			this.watchers.set(directory, holder);
 			return holder;

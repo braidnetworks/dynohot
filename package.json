@@ -35,7 +35,7 @@
 		"@types/babel__generator": "^7.6.6",
 		"@types/babel__traverse": "^7.20.3",
 		"@types/convert-source-map": "^2.0.2",
-		"@types/node": "^20.8.9",
+		"@types/node": "^20.14.9",
 		"babel-jest": "^29.7.0",
 		"babel-plugin-transform-import-meta": "^2.2.1",
 		"eslint": "^8.52.0",
