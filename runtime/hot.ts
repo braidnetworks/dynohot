@@ -117,7 +117,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 					const acceptedModules = accepts.localEntries.map(entry =>
 						entry.found ? entry.module : instance.lookupSpecifier(entry.specifier));
 					if (acceptedModules.every(module => module != null)) {
-						return acceptedModules as ReloadableModuleController[];
+						return acceptedModules;
 					} else {
 						if (hot !== null) {
 							const specifiers = Array.from(Fn.transform(
@@ -176,7 +176,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 					if (acceptedModules.every(module => module != null)) {
 						return {
 							accepts,
-							modules: acceptedModules as ReloadableModuleController[],
+							modules: acceptedModules,
 						};
 					}
 				})));
