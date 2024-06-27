@@ -9,7 +9,7 @@ import { transformModuleSource } from "./transform.js";
 
 export type { Hot } from "dynohot/hot";
 
-type ImportAssertions = Record<string, string>;
+type ImportAttributes = Record<string, string>;
 
 export interface DynohotLoaderOptions {
 	ignore?: RegExp;
@@ -31,7 +31,7 @@ export const initialize: InitializeHook<DynohotLoaderOptions> = ({
 	}))}`;
 };
 
-function extractImportAssertions(params: URLSearchParams): ImportAssertions {
+function extractImportAttributes(params: URLSearchParams): ImportAttributes {
 	const entries = Array.from(Fn.transform(
 		Fn.filter(params, entry => entry[0] === "with"),
 		entry => new URLSearchParams(entry[1])));
@@ -39,18 +39,20 @@ function extractImportAssertions(params: URLSearchParams): ImportAssertions {
 	return Object.fromEntries(entries);
 }
 
-const makeAdapterModule = (url: string, importAssertions: ImportAssertions) => {
+const deprecatedAssertSyntax = /^1[6-9]/.test(process.versions.node);
+
+const makeAdapterModule = (url: string, importAttributes: ImportAttributes) => {
 	const encodedURL = JSON.stringify(url);
 	return (
 	// eslint-disable-next-line @stylistic/indent
-`import * as namespace from ${encodedURL} assert ${JSON.stringify(importAssertions)};
+`import * as namespace from ${encodedURL} ${deprecatedAssertSyntax ? "assert" : "with"} ${JSON.stringify(importAttributes)};
 import { adapter } from "hot:runtime";
 const module = adapter(${encodedURL}, namespace);
 export default function() { return module; };\n`
 	);
 };
 
-const makeJsonModule = (url: string, json: string, importAssertions: ImportAssertions) =>
+const makeJsonModule = (url: string, json: string, importAttributes: ImportAttributes) =>
 // eslint-disable-next-line @stylistic/indent
 `import { acquire } from "hot:runtime"
 function* execute() {
@@ -61,9 +63,9 @@ function* execute() {
 export default function module() {
 	return acquire(${JSON.stringify(url)}, execute);
 }
-module().load({ async: false, execute }, null, false, "json", ${JSON.stringify(importAssertions)}, []);\n`;
+module().load({ async: false, execute }, null, false, "json", ${JSON.stringify(importAttributes)}, []);\n`;
 
-const makeReloadableModule = async (url: string, source: string, importAssertions: ImportAssertions) => {
+const makeReloadableModule = async (url: string, source: string, importAttributes: ImportAttributes) => {
 	const sourceMap = await async function() {
 		try {
 			const map = convertSourceMap.fromComment(source);
@@ -83,7 +85,8 @@ const makeReloadableModule = async (url: string, source: string, importAssertion
 	// `parentURL` in the resolve callback. We will "burn in" `moduleURL` into the transformed
 	// source as a post-transformation process.
 	return (
-		`${transformModuleSource(url, importAssertions, source, sourceMap)}
+	// eslint-disable-next-line @stylistic/indent
+`${transformModuleSource(url, importAttributes, source, sourceMap)}
 import { acquire } from "hot:runtime";
 export default function module() { return acquire(${JSON.stringify(url)}); }\n`
 	);
@@ -121,7 +124,7 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 		const resolutionURL = new URL(specifier);
 		const resolutionSpecifier = resolutionURL.searchParams.get("specifier");
 		assert.ok(resolutionSpecifier !== null);
-		const importAssertions = extractImportAssertions(resolutionURL.searchParams);
+		const importAssertions = extractImportAttributes(resolutionURL.searchParams);
 		return maybeThen(function*() {
 			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
 				...context,
@@ -146,7 +149,7 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 		assert.ok(resolutionSpecifier !== null);
 		const parentModuleURL = resolutionURL.searchParams.get("parent");
 		assert.ok(parentModuleURL !== null);
-		const importAssertions = extractImportAssertions(resolutionURL.searchParams);
+		const importAssertions = extractImportAttributes(resolutionURL.searchParams);
 		return maybeThen(function*() {
 			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
 				...context,
@@ -202,7 +205,7 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 		const url = new URL(urlString);
 		switch (url.pathname) {
 			case "adapter": {
-				const importAssertions = extractImportAssertions(url.searchParams);
+				const importAssertions = extractImportAttributes(url.searchParams);
 				const moduleURL = url.searchParams.get("url");
 				assert.ok(moduleURL);
 				return {
@@ -228,20 +231,22 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 			case "module": return async function() {
 				const moduleURL = url.searchParams.get("url");
 				assert.ok(moduleURL);
-				const importAssertions = extractImportAssertions(url.searchParams);
+				const importAttributes = extractImportAttributes(url.searchParams);
 				const result = await nextLoad(moduleURL, {
 					...context,
-					importAssertions,
+					// TODO [marcel 2024-04-27]: remove after nodejs v18(?) is not supported
+					importAssertions: importAttributes,
+					importAttributes,
 				});
 				if (!ignorePattern.test(moduleURL)) {
 					if (result.format === "module") {
-						const source = await makeReloadableModule(moduleURL, asString(result.source), importAssertions);
+						const source = await makeReloadableModule(moduleURL, asString(result.source), importAttributes);
 						return { ...result, source };
 					} else if (result.format === "json") {
 						return {
 							...result,
 							format: "module",
-							source: makeJsonModule(moduleURL, asString(result.source), importAssertions),
+							source: makeJsonModule(moduleURL, asString(result.source), importAttributes),
 						};
 					}
 				}
@@ -249,7 +254,7 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 				// Otherwise this is an adapter module
 				return {
 					format: "module",
-					source: makeAdapterModule(moduleURL, importAssertions),
+					source: makeAdapterModule(moduleURL, importAttributes),
 				};
 			}();
 

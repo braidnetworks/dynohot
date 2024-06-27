@@ -7,7 +7,7 @@ export interface ModuleDeclaration {
 	readonly body: ModuleBody;
 	readonly meta: ImportMeta | null;
 	readonly format: ModuleFormat;
-	readonly importAssertions: Record<string, string>;
+	readonly importAttributes: Record<string, string>;
 	readonly usesDynamicImport: boolean;
 	readonly indirectExportEntries: ReadonlyMap<string, {
 		readonly moduleRequest: LoadedModuleRequestEntry;
@@ -24,7 +24,7 @@ export interface ModuleDeclaration {
 export type ModuleBody = ModuleBodySync | ModuleBodyAsync;
 
 /** @internal */
-export type DynamicImport = (specifier: string, importAssertions?: Record<string, string>) => Promise<ModuleNamespace>;
+export type DynamicImport = (specifier: string, importAttributes?: Record<string, string>) => Promise<ModuleNamespace>;
 
 interface ModuleBodySync {
 	async: false;

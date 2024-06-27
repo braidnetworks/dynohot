@@ -142,7 +142,7 @@ export class TestModule {
 				import("hot:test/adapter"),
 				import("hot:test/reloadable"),
 			]);
-			export const acquire = Reloadable.makeAcquire((specifier, assertions) => import(specifier, assertions), { silent: true });
+			export const acquire = Reloadable.makeAcquire((specifier, attributes) => import(specifier, attributes), { silent: true });
 			export const adapter = Adapter.adapter;
 			globalThis.expect = Jest.expect;\n`, {
 				context: environment.context,

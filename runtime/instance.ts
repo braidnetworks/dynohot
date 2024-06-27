@@ -325,7 +325,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		yield* Fn.map(this.dynamicImports, instance => instance.controller);
 	}
 
-	private async dynamicImport(specifier: string, importAssertions?: Record<string, string>) {
+	private async dynamicImport(specifier: string, importAttributes?: Record<string, string>) {
 		assert.ok(
 			this.state.status === ModuleStatus.linked ||
 			this.state.status === ModuleStatus.evaluating ||
@@ -335,10 +335,10 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			[ "parent", this.controller.url ],
 			[ "specifier", specifier ],
 			...Fn.map(
-				Object.entries(importAssertions ?? {}),
+				Object.entries(importAttributes ?? {}),
 				([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
-		] as Iterable<[ string, string ]>);
-		const { default: acquire } = await this.controller.application.dynamicImport(`hot:import?${String(specifierParams)}`, importAssertions);
+		] as [ string, string ][]);
+		const { default: acquire } = await this.controller.application.dynamicImport(`hot:import?${String(specifierParams)}`, importAttributes);
 		const controller: ModuleController = (acquire as any)();
 		didDynamicImport(this, controller);
 		if (controller.reloadable) {

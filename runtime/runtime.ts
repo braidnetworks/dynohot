@@ -6,7 +6,7 @@ const params = self.searchParams;
 
 /** @internal */
 export const acquire = makeAcquire(
-	(specifier, assertions) => import(specifier, assertions),
+	(specifier, attributes) => import(specifier, attributes),
 	Object.fromEntries(params),
 );
 

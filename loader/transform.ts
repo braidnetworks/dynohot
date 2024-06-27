@@ -22,9 +22,11 @@ interface ImportEntry {
 	bindings: BindingEntry[];
 }
 
+const deprecatedAssertSyntax = /^1[6-9]/.test(process.versions.node);
+
 export function transformModuleSource(
 	filename: string,
-	importAssertions: Record<string, string>,
+	importAttributes: Record<string, string>,
 	sourceText: string,
 	sourceMap: unknown,
 ) {
@@ -94,7 +96,7 @@ export function transformModuleSource(
 			return `{ controller: ${declaration.identifier}, specifier: ${specifier}, bindings: ${bindings} }`;
 		},
 	), ", ")} ]`;
-	const loader = `module().load(${body}, ${importMeta}, ${state.usesDynamicImport}, "module", ${JSON.stringify(importAssertions)}, ${requestEntries});`;
+	const loader = `module().load(${body}, ${importMeta}, ${state.usesDynamicImport}, "module", ${JSON.stringify(importAttributes)}, ${requestEntries});`;
 
 	// Build final module source
 	return `${result.code}\n${sourceMapComment}\n${imports}\n${loader}\n`;
@@ -117,16 +119,16 @@ function transformProgram(program: NodePath<t.Program>) {
 
 	const acquireModuleRequestBindings = (moduleRequest: ModuleRequestNode) => {
 		assert.ok(moduleRequest.source);
-		// Convert import assertions into `with` URL search parameters. That way the underlying
-		// loader can pass forward the assertions, but the runtime imports will be plain.
+		// Convert import attributes into `with` URL search parameters. That way the underlying
+		// loader can pass forward the attributes, but the runtime imports will be plain.
 		const attributes = moduleRequest.attributes ?? moduleRequest.assertions ?? [];
 		const specifier = moduleRequest.source.value;
 		const params = new URLSearchParams([
 			[ "specifier", specifier ],
 			...Fn.map(
-				attributes, assertion => [
+				attributes, attribute => [
 					"with",
-					String(new URLSearchParams([ [ extractName(assertion.key), extractName(assertion.value) ] ])),
+					String(new URLSearchParams([ [ extractName(attribute.key), extractName(attribute.value) ] ])),
 				]),
 		] as [ string, string ][]);
 		const importSpecifier = `hot:module?${String(params)}`;

@@ -354,7 +354,7 @@ module().load(
     false,
     // module format: [ "module", "json", "commonjs", (others??) ]
     "module",
-    // import assertions `import .. with { type: "json" }`
+    // import attributes `import .. with { type: "json" }`
     {},
     // imports
     [ {

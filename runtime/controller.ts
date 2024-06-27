@@ -235,13 +235,13 @@ export class ReloadableModuleController implements AbstractModuleController {
 			void (async () => {
 				const instance = this.staging ?? this.current;
 				assert.ok(instance !== undefined);
-				const { importAssertions } = instance.declaration;
+				const { importAttributes } = instance.declaration;
 				const params = new URLSearchParams([
 					[ "url", this.url ],
 					[ "version", String(++this.version) ],
 					[ "format", instance.declaration.format ],
 					...Fn.map(
-						Object.entries(importAssertions),
+						Object.entries(importAttributes),
 						([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
 				] as Iterable<[ string, string ]>);
 				try {
@@ -340,7 +340,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 		meta: ImportMeta | null,
 		usesDynamicImport: boolean,
 		format: ModuleFormat,
-		importAssertions: Record<string, string>,
+		importAttributes: Record<string, string>,
 		loadedModules: readonly LoadedModuleRequestEntry[],
 	) {
 		if (evictModule) {
@@ -349,7 +349,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 				const backingModuleParams = new URLSearchParams([
 					[ "url", this.url ],
 					[ "version", String(this.version) ],
-					...Object.entries(importAssertions).map(
+					...Object.entries(importAttributes).map(
 						([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
 				] as Iterable<[ string, string ]>);
 				const backingModuleURL = `hot:module?${String(backingModuleParams)}`;
@@ -360,7 +360,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 			body,
 			meta,
 			format,
-			importAssertions,
+			importAttributes,
 			usesDynamicImport,
 			loadedModules,
 			indirectExportEntries: new Map(function*() {
