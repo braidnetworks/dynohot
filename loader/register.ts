@@ -1,6 +1,5 @@
 import { register } from "node:module";
 
-// I can not believe they did this.
-register("dynohot", {
+register("dynohot/loader", {
 	parentURL: import.meta.url,
 });

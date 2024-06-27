@@ -11,9 +11,9 @@ new code against existing state.
 
 Other HMR solutions like Webpack and Vite exist, but due to their focus on web browsers it can be
 challenging to get them to run server-side apps. With the experimental nodejs loader API you can get
-HMR running with a simple `--loader dynohot` [or `--import dynohot/register`] flag. You should
-probably also add `--enable-source-maps` because dynohot applies a [transformation](#transformation)
-to your source code.
+HMR running with a simple `--import dynohot` flag. You should probably also add
+`--enable-source-maps` because dynohot applies a [transformation](#transformation) to your source
+code.
 
 Note that your project *must* be using proper [JavaScript
 Modules](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules), i.e. `"type":
@@ -188,7 +188,7 @@ module created [`@loaderkit/ts`](https://github.com/braidnetworks/loaderkit/tree
 which handles this and works well with dynohot.
 
 ```
-node --import @loaderkit/ts/register --import dynohot/register ./main.ts
+node --import @loaderkit/ts/register --import dynohot ./main.ts
 ```
 
 You can add the following triple-slash directive to a `*.d.ts` file in your project and
@@ -289,13 +289,28 @@ hot?.dispose(data => {
 OPTIONS
 -------
 
-You can pass options to dynohot using `--import dynohot/register?option=value` or `--loader dynohot/?option=value`.
+You can pass options to dynohot by creating a registration runtime JavaScript file and importing it
+instead of `--import dynohot`. For example:
 
-* `ignore` - Pass `?ignore=regexpPattern` to explicitly ignore certain file paths. By default this is
-  `ignore=[/\]node_modules[/\]`.
-* `silent` - Pass `?silent` to prevent logging messages to stderr console. You might want this if
-  you're using something like Winston or Pino. Be sure to use `import.meta.on("message", ...)` to
-  raise informative dynohot messages to the developer's attention.
+`loaders.js`:
+```js
+import { register } from "node:module";
+
+register("dynohot/loader", {
+	parentURL: import.meta.url,
+    data: {
+        silent: true,
+    },
+});
+```
+
+* `ignore` - `RegExp` used to filter out modules which should not take place in hot reloading. The
+  string applied to the regular expression will be a fully-resolved file URL. The default value of
+  this parameter is `/[/\\]node_modules[/\\]/`.
+* `silent` - `boolean` which will prevent `dynohot` from outputting diagnostic messages to stderr.
+  You might want this if you're using something like Winston or Pino. Be sure to use
+  `import.meta.on("message", ...)` to raise informative dynohot messages to the developer's
+  attention.
 
 TRANSFORMATION
 --------------

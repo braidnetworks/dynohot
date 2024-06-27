@@ -1,4 +1,4 @@
-import type { LoadHook, ModuleFormat, ResolveFnOutput, ResolveHook } from "node:module";
+import type { InitializeHook, LoadHook, ModuleFormat, ResolveFnOutput, ResolveHook } from "node:module";
 import * as assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import * as fs from "node:fs/promises";
@@ -9,14 +9,27 @@ import { transformModuleSource } from "./transform.js";
 
 export type { Hot } from "dynohot/hot";
 
-const self = new URL(import.meta.url);
-const ignoreString = self.searchParams.get("ignore");
-const ignorePattern = ignoreString === null ? /[/\\]node_modules[/\\]/ : new RegExp(ignoreString);
-
-const root = String(new URL("..", self));
-const runtimeURL = `${root}runtime/runtime.js?${String(self.searchParams)}`;
-
 type ImportAssertions = Record<string, string>;
+
+export interface DynohotLoaderOptions {
+	ignore?: RegExp;
+	silent?: boolean;
+}
+
+let ignorePattern: RegExp;
+let runtimeURL: string;
+
+/** @internal */
+export const initialize: InitializeHook<DynohotLoaderOptions> = ({
+	ignore: ignoreOption = /[/\\]node_modules[/\\]/,
+	silent = false,
+} = {}) => {
+	ignorePattern = ignoreOption;
+	const root = String(new URL("..", new URL(import.meta.url)));
+	runtimeURL = `${root}runtime/runtime.js?${String(new URLSearchParams({
+		...silent ? { silent: "" } : {},
+	}))}`;
+};
 
 function extractImportAssertions(params: URLSearchParams): ImportAssertions {
 	const entries = Array.from(Fn.transform(

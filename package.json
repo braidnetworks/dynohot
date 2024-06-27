@@ -3,12 +3,9 @@
 	"type": "module",
 	"version": "1.1.5",
 	"exports": {
-		".": "./dist/loader/loader.js",
-		"./?": "./dist/loader/loader.js",
-		"./?*": "./dist/loader/loader.js?*",
+		".": "./dist/loader/register.js",
+		"./loader": "./dist/loader/loader.js",
 		"./register": "./dist/loader/register.js",
-		"./register?": "./dist/loader/register.js",
-		"./register?*": "./dist/loader/register.js?*",
 		"./import-meta": {
 			"types": "./import-meta.d.ts"
 		},
