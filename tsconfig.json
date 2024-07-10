@@ -12,7 +12,7 @@
 		"isolatedModules": true,
 		"sourceMap": true,
 		"stripInternal": true,
-		"target": "esnext",
+		"target": "es2020",
 		"verbatimModuleSyntax": true,
 
 		// Module resolution settings

@@ -415,20 +415,16 @@ export class ReloadableModuleController implements AbstractModuleController {
 		iterate: (node: ReloadableModuleController) => Iterable<ReloadableModuleController> =
 		node => node.iterateWithDynamics(),
 	) {
-		const [ release, visitIndex ] = acquireVisitIndex();
-		try {
-			yield* function *traverse(node: ReloadableModuleController): Iterable<ReloadableModuleController> {
-				for (const child of iterate(node)) {
-					if (child.visitIndex !== visitIndex) {
-						child.visitIndex = visitIndex;
-						yield child;
-						yield* traverse(child);
-					}
+		using visitIndex = acquireVisitIndex();
+		yield* function *traverse(node: ReloadableModuleController): Iterable<ReloadableModuleController> {
+			for (const child of iterate(node)) {
+				if (child.visitIndex !== visitIndex.index) {
+					child.visitIndex = visitIndex.index;
+					yield child;
+					yield* traverse(child);
 				}
-			}(this);
-		} finally {
-			release();
-		}
+			}
+		}(this);
 	}
 
 	private async requestUpdate(this: ReloadableModuleController): Promise<UpdateResult> {
@@ -502,10 +498,13 @@ export class ReloadableModuleController implements AbstractModuleController {
 			});
 
 		// Rollback routine which undoes the above traversal.
-		const rollback = () => {
+		const rollback = (resetStaging = false) => {
 			for (const controller of nextControllers) {
 				controller.pending = undefined;
 				controller.previous = undefined;
+				if (resetStaging) {
+					controller.staging = undefined;
+				}
 			}
 		};
 
@@ -514,60 +513,60 @@ export class ReloadableModuleController implements AbstractModuleController {
 			rollback();
 			return undefined;
 		} else if (initialResult.hasDecline) {
-			rollback();
+			rollback(true);
 			const declined = Array.from(function *traverse(result): Iterable<ReloadableModuleController> {
-				yield* result.declined;
-				yield* Fn.transform(result.forwardResults, traverse);
+				// Don't re-traverse shared dependencies
+				if (result.hasDecline) {
+					yield* result.declined;
+					yield* Fn.transform(result.forwardResults, traverse);
+				}
 			}(initialResult));
 			return { type: UpdateStatus.declined, declined };
 		} else if (initialResult.invalidated.length > 0) {
+			rollback(true);
 			// Tracing invalidations is actually pretty cumbersome because we need to compare cyclic
 			// groups with the actual import entries to get something parsable by a human.
-			const [ release, visitIndex ] = acquireVisitIndex();
-			try {
-				const chain = Array.from(function *traverse(result): Iterable<InvalidationChain> {
-					// Don't re-traverse shared dependencies
-					for (const node of result.invalidated) {
-						if (node.visitIndex === visitIndex) {
-							yield {
-								modules: result.invalidated,
-								next: null,
-							};
-							return;
-						} else {
-							node.visitIndex = visitIndex;
-						}
-					}
-					const importedModules = new Set(Fn.transform(result.invalidated, function*(controller) {
-						const current = controller.select();
-						yield* current.iterateDependencies();
-					}));
-					const importedInvalidations = Array.from(Fn.transform(result.forwardResults, function*(result) {
-						const invalidatedImports = result.invalidated.filter(controller => importedModules.has(controller));
-						if (invalidatedImports.length > 0) {
-							yield* traverse(result);
-						}
-					}));
+			using visitIndex = acquireVisitIndex();
+			const chain = Array.from(function *traverse(result): Iterable<InvalidationChain> {
+				// Don't re-traverse shared dependencies
+				if (Fn.some(result.invalidated, node => node.visitIndex === visitIndex.index)) {
 					yield {
 						modules: result.invalidated,
-						next: function() {
-							if (importedInvalidations.length === 0) {
-								return undefined;
-							} else if (importedInvalidations.every(result => result.next === null)) {
-								// Also, skip branches that only include truncated results from the
-								// "re-traverse" conditional above.
-								return null;
-							} else {
-								return importedInvalidations;
-							}
-						}(),
+						next: null,
 					};
-				}(initialResult));
-				rollback();
-				return { type: UpdateStatus.unaccepted, chain };
-			} finally {
-				release();
-			}
+					return;
+				} else {
+					for (const node of result.invalidated) {
+						node.visitIndex = visitIndex.index;
+					}
+				}
+				const hasDependency = Fn.pipe(
+					result.invalidated,
+					$$ => Fn.transform($$, controller => controller.select().iterateDependencies()),
+					$$ => new Set($$),
+					$$ => (controller: ReloadableModuleController) => $$.has(controller));
+				const next = Fn.pipe(
+					result.forwardResults,
+					$$ => Fn.filter($$, result => Fn.some(result.invalidated, hasDependency)),
+					$$ => Fn.transform($$, traverse),
+					$$ => Array.from($$),
+					$$ => {
+						if ($$.length === 0) {
+							return undefined;
+						} else if ($$.every(result => result.next === null)) {
+							// Also, skip branches that only include truncated results from the
+							// "re-traverse" conditional above.
+							return null;
+						} else {
+							return $$;
+						}
+					});
+				yield {
+					modules: result.invalidated,
+					next,
+				};
+			}(initialResult));
+			return { type: UpdateStatus.unaccepted, chain };
 		}
 
 		// If the update contains new code then we need to make sure it will link. Normally the

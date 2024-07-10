@@ -10,6 +10,9 @@ import { ReloadableModuleController } from "../../runtime/controller.js";
 let count = 0;
 const modules = new Map<string, TestModule>();
 
+// @ts-expect-error
+Symbol.dispose = Symbol.for('Symbol.dispose');
+
 interface Environment {
 	readonly context: Context;
 	readonly pending: TestModule[];

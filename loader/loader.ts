@@ -92,7 +92,7 @@ export default function module() { return acquire(${JSON.stringify(url)}); }\n`
 	);
 };
 
-function asString(sourceText: ArrayBuffer | Uint8Array | string | undefined) {
+function asString(sourceText: ArrayBuffer | NodeJS.TypedArray | string | undefined) {
 	if (sourceText instanceof Buffer) {
 		return sourceText.toString("utf8");
 	} else if (typeof sourceText === "string") {

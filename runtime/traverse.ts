@@ -32,21 +32,27 @@ interface Collectable<Type> {
 	collectionIndex: number;
 }
 
+interface VisitIndex extends Disposable {
+	readonly index: number;
+}
+
 /** @internal */
 export const makeAcquireVisitIndex = function() {
 	return () => {
 		let lock = false;
-		let currentVisitIndex = 0;
-		return () => {
+		let currentIndex = 0;
+		return (): VisitIndex => {
 			assert.ok(!lock);
 			lock = true;
-			const visitIndex = ++currentVisitIndex;
-			const release = () => {
-				assert.ok(lock);
-				assert.equal(currentVisitIndex, visitIndex);
-				lock = false;
+			const index = ++currentIndex;
+			return {
+				index,
+				[Symbol.dispose]() {
+					assert.ok(lock);
+					assert.equal(currentIndex, index);
+					lock = false;
+				},
 			};
-			return [ release, visitIndex ] as const;
 		};
 	};
 }();
@@ -79,13 +85,13 @@ export function traverseDepthFirst<
 ): Join {
 	const expect = (node: Node) => {
 		const state = peek(node);
-		assert.ok(state.visitIndex === visitIndex);
+		assert.ok(state.visitIndex === visitIndex.index);
 		return state as TraversalState<Result>;
 	};
 	const inner = (node: Node): CyclicState<Result> => {
 		// Initialize and add to stack
 		const nodeIndex = index++;
-		const holder = makeTraversalState<Result>(visitIndex, {
+		const holder = makeTraversalState<Result>(visitIndex.index, {
 			index: nodeIndex,
 			ancestorIndex: nodeIndex,
 			order,
@@ -99,7 +105,7 @@ export function traverseDepthFirst<
 		let hasPromise = false as boolean;
 		const forwardResultsMaybePromise = Array.from(Fn.transform(begin(node, holder), function*(child) {
 			const holder = peek(child) as TraversalState<Result>;
-			const childState = holder.visitIndex === visitIndex ? holder.state : inner(child);
+			const childState = holder.visitIndex === visitIndex.index ? holder.state : inner(child);
 			const { result } = childState;
 			if (result === undefined) {
 				state.ancestorIndex = Math.min(state.ancestorIndex, childState.ancestorIndex);
@@ -206,7 +212,7 @@ export function traverseDepthFirst<
 		return state;
 	};
 
-	const [ release, visitIndex ] = acquireVisitIndex();
+	using visitIndex = acquireVisitIndex();
 	let index = 0;
 	let order = 0;
 	const stack: Node[] = [];
@@ -221,8 +227,6 @@ export function traverseDepthFirst<
 	} catch (error) {
 		unwind?.(stack);
 		throw error;
-	} finally {
-		release();
 	}
 }
 

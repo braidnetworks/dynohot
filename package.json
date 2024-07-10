@@ -26,6 +26,7 @@
 		"convert-source-map": "^2.0.0"
 	},
 	"devDependencies": {
+		"@babel/plugin-proposal-explicit-resource-management": "^7.25.9",
 		"@babel/preset-env": "^7.24.7",
 		"@babel/preset-typescript": "^7.24.7",
 		"@braidai/eslintrc": "^1.0.0",

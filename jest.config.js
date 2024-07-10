@@ -34,6 +34,7 @@ const config = {
 			"babel-jest", {
 				plugins: [
 					"babel-plugin-transform-import-meta",
+					"@babel/plugin-proposal-explicit-resource-management",
 				],
 				presets: [
 					[ "@babel/preset-env", { targets: { node: "current" } } ],
