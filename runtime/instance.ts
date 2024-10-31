@@ -104,6 +104,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 					const importMeta = Object.assign(Object.create(this.declaration.meta) as ImportMeta, {
 						dynoHot: hot,
 						hot,
+						url: this.controller.url,
 					});
 					return { hot, importMeta };
 				}

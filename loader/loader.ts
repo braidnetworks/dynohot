@@ -92,7 +92,7 @@ export default function module() { return acquire(${JSON.stringify(url)}); }\n`
 	);
 };
 
-function asString(sourceText: ArrayBuffer | NodeJS.TypedArray | string | undefined) {
+function asString(sourceText: any) {
 	if (sourceText instanceof Buffer) {
 		return sourceText.toString("utf8");
 	} else if (typeof sourceText === "string") {
@@ -129,6 +129,7 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
 				...context,
 				parentURL: parentModuleURL,
+				// @ts-expect-error
 				importAssertions,
 			});
 			const params = new URLSearchParams([
@@ -154,6 +155,7 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
 				...context,
 				parentURL: parentModuleURL,
+				// @ts-expect-error
 				importAssertions,
 			});
 			const params = new URLSearchParams([
@@ -196,7 +198,18 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 		};
 	}
 	// This import graph has bailed from the "hot:" scheme and is just forwarded to the host.
-	return nextResolve(specifier, context);
+	const parentURL = function() {
+		if (context.parentURL.startsWith("hot:")) {
+			const parentURL = new URL(context.parentURL);
+			return parentURL.searchParams.get("url");
+		} else {
+			return context.parentURL;
+		}
+	}();
+	return nextResolve(specifier, {
+		...context,
+		...parentURL !== null && { parentURL },
+	});
 };
 
 /** @internal */
@@ -235,6 +248,7 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 				const result = await nextLoad(moduleURL, {
 					...context,
 					// TODO [marcel 2024-04-27]: remove after nodejs v18(?) is not supported
+					// @ts-expect-error
 					importAssertions: importAttributes,
 					importAttributes,
 				});
