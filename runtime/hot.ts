@@ -176,16 +176,16 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 					if (acceptedModules.every(module => module != null)) {
 						return {
 							accepts,
-							modules: acceptedModules,
+							acceptedModules,
 						};
 					}
 				})));
-				const acceptedModules = new Set(Fn.transform(acceptedHandlers, handler => handler.modules));
+				const acceptedModules = new Set(Fn.transform(acceptedHandlers, handler => handler.acceptedModules));
 				if (!modules.every(module => !imports.has(module) || acceptedModules.has(module))) {
 					return false;
 				}
-				for (const { accepts, modules } of acceptedHandlers) {
-					if (accepts.callback && modules.some(module => modules.includes(module))) {
+				for (const { accepts, acceptedModules } of acceptedHandlers) {
+					if (accepts.callback && modules.some(module => acceptedModules.includes(module))) {
 						const namespaces = modules.map(module => module.select().moduleNamespace()());
 						assert.ok(hot);
 						try {

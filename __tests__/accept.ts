@@ -20,6 +20,26 @@ test("accept handlers should run top down", async () => {
 	expect(result?.type).toBe(UpdateStatus.success);
 });
 
+test("only run affected handlers", async () => {
+	const main = new TestModule(() =>
+		`import {} from ${left};
+		import {} from ${right};
+		import.meta.hot.accept(${left}, () => {
+			globalThis.leftSeen = true;
+		});
+		import.meta.hot.accept(${right}, () => {
+			globalThis.rightSeen = true;
+		});`);
+	const left: TestModule = new TestModule(() => "");
+	const right = new TestModule(() => "");
+	await main.dispatch();
+	left.update(() => "");
+	const result = await main.releaseUpdate();
+	expect(result?.type).toBe(UpdateStatus.success);
+	expect(main.global.leftSeen).toBe(true);
+	expect(main.global.rightSeen).toBe(undefined);
+});
+
 test("should be able to accept a cycle root", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${left};
