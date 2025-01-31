@@ -347,12 +347,11 @@ export class ReloadableModuleController implements AbstractModuleController {
 			// Experimental module eviction
 			if (this.version !== 0) {
 				const backingModuleParams = new URLSearchParams([
-					[ "url", this.url ],
 					[ "version", String(this.version) ],
 					...Object.entries(importAttributes).map(
 						([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
 				] as Iterable<[ string, string ]>);
-				const backingModuleURL = `hot:module?${String(backingModuleParams)}`;
+				const backingModuleURL = `hot:module:${this.url}?${String(backingModuleParams)}`;
 				evictModule(backingModuleURL);
 			}
 		}

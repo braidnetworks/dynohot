@@ -339,7 +339,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 				Object.entries(importAttributes ?? {}),
 				([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
 		] as [ string, string ][]);
-		const { default: acquire } = await this.controller.application.dynamicImport(`hot:import?${String(specifierParams)}`, importAttributes);
+		const { default: acquire } = await this.controller.application.dynamicImport(`hot:dynamic?${String(specifierParams)}`, importAttributes);
 		const controller: ModuleController = (acquire as any)();
 		didDynamicImport(this, controller);
 		if (controller.reloadable) {
