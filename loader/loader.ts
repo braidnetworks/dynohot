@@ -7,7 +7,7 @@ import Fn from "dynohot/functional";
 import { maybeThen } from "dynohot/runtime/utility";
 import { transformModuleSource } from "./transform.js";
 
-export type { Hot } from "dynohot/hot";
+export type { Hot } from "dynohot/runtime/hot";
 
 type ImportAttributes = Record<string, string>;
 
