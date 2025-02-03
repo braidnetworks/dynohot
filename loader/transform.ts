@@ -131,7 +131,7 @@ function transformProgram(program: NodePath<t.Program>) {
 					String(new URLSearchParams([ [ extractName(attribute.key), extractName(attribute.value) ] ])),
 				]),
 		] as [ string, string ][]);
-		const importSpecifier = `hot:module?${String(params)}`;
+		const importSpecifier = `hot:static?${String(params)}`;
 		return specifierToBindings.get(importSpecifier) ?? function() {
 			const identifierFragment = specifier
 				// "$" becomes our escape character

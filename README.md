@@ -330,7 +330,7 @@ console.log(importedValue);
 
 ```js
 import { acquire } from "hot:runtime";
-import _a_module from "hot:module?specifier=./a-module";
+import _a_module from "hot:static?specifier=./a-module";
 function* execute(_meta, _import) {
     // suspend until initial link of this module
     let _$ = yield [
