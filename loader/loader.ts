@@ -39,7 +39,8 @@ function extractImportAttributes(params: URLSearchParams): ImportAttributes {
 	return Object.fromEntries(entries);
 }
 
-const deprecatedAssertSyntax = /^1[6-9]/.test(process.versions.node);
+// 16.14.0 >= version < 18.20.0
+const deprecatedAssertSyntax = /^(?:16|17|18\.1?[0-9]\.)/.test(process.versions.node);
 
 const makeAdapterModule = (url: string, importAttributes: ImportAttributes) => {
 	const encodedURL = JSON.stringify(url);
@@ -124,13 +125,12 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 		const resolutionURL = new URL(specifier);
 		const resolutionSpecifier = resolutionURL.searchParams.get("specifier");
 		assert.ok(resolutionSpecifier !== null);
-		const importAssertions = extractImportAttributes(resolutionURL.searchParams);
+		const importAttributes = extractImportAttributes(resolutionURL.searchParams);
 		return maybeThen(function*() {
 			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
 				...context,
 				parentURL: parentModuleURL,
-				// @ts-expect-error
-				importAssertions,
+				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: importAttributes,
 			});
 			const params = new URLSearchParams([
 				[ "url", result.url ],
@@ -138,7 +138,7 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 			]);
 			return {
 				...result,
-				importAssertions: {},
+				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: {},
 				url: `hot:module?${String(params)}`,
 			};
 		});
@@ -150,13 +150,12 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 		assert.ok(resolutionSpecifier !== null);
 		const parentModuleURL = resolutionURL.searchParams.get("parent");
 		assert.ok(parentModuleURL !== null);
-		const importAssertions = extractImportAttributes(resolutionURL.searchParams);
+		const importAttributes = extractImportAttributes(resolutionURL.searchParams);
 		return maybeThen(function*() {
 			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
 				...context,
 				parentURL: parentModuleURL,
-				// @ts-expect-error
-				importAssertions,
+				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: importAttributes,
 			});
 			const params = new URLSearchParams([
 				[ "url", result.url ],
@@ -164,7 +163,7 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 			]);
 			return {
 				...result,
-				importAssertions: {},
+				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: {},
 				url: `hot:module?${String(params)}`,
 			};
 		});
@@ -218,13 +217,13 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 		const url = new URL(urlString);
 		switch (url.pathname) {
 			case "adapter": {
-				const importAssertions = extractImportAttributes(url.searchParams);
+				const importAttributes = extractImportAttributes(url.searchParams);
 				const moduleURL = url.searchParams.get("url");
 				assert.ok(moduleURL);
 				return {
 					shortCircuit: true,
 					format: "module",
-					source: makeAdapterModule(moduleURL, importAssertions),
+					source: makeAdapterModule(moduleURL, importAttributes),
 				};
 			}
 
@@ -248,9 +247,7 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 				const result = await nextLoad(moduleURL, {
 					...context,
 					// TODO [marcel 2024-04-27]: remove after nodejs v18(?) is not supported
-					// @ts-expect-error
-					importAssertions: importAttributes,
-					importAttributes,
+					[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: importAttributes,
 				});
 				if (!ignorePattern.test(moduleURL)) {
 					if (result.format === "module") {
