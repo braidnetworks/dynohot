@@ -1,33 +1,36 @@
 import type { InitializeHook, LoadHook, ModuleFormat, ResolveFnOutput, ResolveHook } from "node:module";
+import type { MessagePort } from "node:worker_threads";
 import * as assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import * as fs from "node:fs/promises";
 import convertSourceMap from "convert-source-map";
 import Fn from "dynohot/functional";
 import { maybeThen } from "dynohot/runtime/utility";
+import { LoaderHot } from "./loader-hot.js";
 import { transformModuleSource } from "./transform.js";
 
 export type { Hot } from "dynohot/runtime/hot";
 
 type ImportAttributes = Record<string, string>;
 
-export interface DynohotLoaderOptions {
+/** @internal */
+export interface LoaderParameters {
 	ignore?: RegExp;
+	port: MessagePort;
 	silent?: boolean;
 }
 
 let ignorePattern: RegExp;
+let port: MessagePort;
 let runtimeURL: string;
 
 /** @internal */
-export const initialize: InitializeHook<DynohotLoaderOptions> = ({
-	ignore: ignoreOption = /[/\\]node_modules[/\\]/,
-	silent = false,
-} = {}) => {
-	ignorePattern = ignoreOption;
+export const initialize: InitializeHook<LoaderParameters> = options => {
+	port = options.port;
+	ignorePattern = options.ignore ?? /[/\\]node_modules[/\\]/;
 	const root = String(new URL("..", new URL(import.meta.url)));
 	runtimeURL = `${root}runtime/runtime.js?${String(new URLSearchParams({
-		...silent ? { silent: "" } : {},
+		...options.silent ? { silent: "" } : {},
 	}))}`;
 };
 
@@ -54,7 +57,7 @@ export default function() { return module; };\n`
 
 const makeJsonModule = (url: string, json: string, importAttributes: ImportAttributes) =>
 // eslint-disable-next-line @stylistic/indent
-`import { acquire } from "hot:runtime"
+`import { acquire } from "hot:runtime";
 function* execute() {
 	yield [ () => {}, { default: () => json } ];
 	yield;
@@ -245,12 +248,14 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 				const moduleURL = url.searchParams.get("url");
 				assert.ok(moduleURL);
 				const importAttributes = extractImportAttributes(url.searchParams);
+				const hot = new LoaderHot(moduleURL, port);
 				const result = await nextLoad(moduleURL, {
 					...context,
 					// TODO [marcel 2024-04-27]: remove after nodejs v18(?) is not supported
 					// @ts-expect-error
 					importAssertions: importAttributes,
 					importAttributes,
+					hot,
 				});
 				if (!ignorePattern.test(moduleURL)) {
 					if (result.format === "module") {

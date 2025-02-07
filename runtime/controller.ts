@@ -2,6 +2,7 @@ import type { BindingEntry, ExportIndirectEntry, ExportIndirectStarEntry, Export
 import type { DynamicImport, LoadedModuleRequestEntry, ModuleBody, ModuleDeclaration } from "./declaration.js";
 import type { AbstractModuleController } from "./module.js";
 import type { ModuleFormat } from "node:module";
+import type { MessagePort } from "node:worker_threads";
 import * as assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { EOL } from "node:os";
@@ -15,12 +16,14 @@ import { debounceAsync, debounceTimer, discriminatedTypePredicate, evictModule, 
 import { FileWatcher } from "./watcher.js";
 
 /** @internal */
-export function makeAcquire(dynamicImport: DynamicImport, params: Record<string, unknown>) {
+export function makeAcquire(dynamicImport: DynamicImport, params: Record<string, unknown>, port: MessagePort | undefined) {
 	const emitter = new EventEmitter;
 	const useLogs = params.silent === undefined;
 	const application: HotApplication = {
 		dynamicImport,
 		emitter,
+		fileWatcher: new FileWatcher(),
+		loaderPort: port,
 		requestUpdate: defaultRequestUpdate,
 		requestUpdateResult: defaultRequestUpdateResult,
 		log(message, ...params) {
@@ -52,6 +55,8 @@ async function defaultRequestUpdateResult(): Promise<never> {
 export interface HotApplication {
 	dynamicImport: DynamicImport;
 	emitter: EventEmitter;
+	fileWatcher: FileWatcher;
+	loaderPort: MessagePort | undefined;
 	log: (message: string, ...params: any[]) => void;
 	requestUpdate: () => Promise<void>;
 	requestUpdateResult: () => Promise<UpdateResult>;
@@ -230,28 +235,33 @@ export class ReloadableModuleController implements AbstractModuleController {
 		public readonly application: HotApplication,
 		public readonly url: string,
 	) {
-		const watcher = new FileWatcher();
-		watcher.watch(this.url, () => {
-			void (async () => {
-				const instance = this.staging ?? this.current;
-				assert.ok(instance !== undefined);
-				const { importAttributes } = instance.declaration;
-				const params = new URLSearchParams([
-					[ "url", this.url ],
-					[ "version", String(++this.version) ],
-					[ "format", instance.declaration.format ],
-					...Fn.map(
-						Object.entries(importAttributes),
-						([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
-				] as Iterable<[ string, string ]>);
-				try {
-					await import(`hot:reload?${String(params)}`);
-				} catch (error) {
-					this.application.log(`Error in module '%s':${EOL}%O`, this.url, error);
-					return;
-				}
-				void this.application.requestUpdate();
-			})();
+		const reload = () => void (async () => {
+			const instance = this.staging ?? this.current;
+			assert.ok(instance !== undefined);
+			const { importAttributes } = instance.declaration;
+			const params = new URLSearchParams([
+				[ "url", this.url ],
+				[ "version", String(++this.version) ],
+				[ "format", instance.declaration.format ],
+				...Fn.map(
+					Object.entries(importAttributes),
+					([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
+			] as Iterable<[ string, string ]>);
+			try {
+				await import(`hot:reload?${String(params)}`);
+			} catch (error) {
+				this.application.log(`Error in module '%s':${EOL}%O`, this.url, error);
+				return;
+			}
+			void this.application.requestUpdate();
+		})();
+		// TODO [marcel 2025-02-05]: This returns a handle to an unlistener which should probably be
+		// invoked on `prune`.
+		application.fileWatcher.watch(this.url, reload);
+		application.loaderPort?.on("message", message => {
+			if (message === this.url) {
+				reload();
+			}
 		});
 	}
 

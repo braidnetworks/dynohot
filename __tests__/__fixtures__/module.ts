@@ -10,8 +10,8 @@ import { ReloadableModuleController } from "../../runtime/controller.js";
 let count = 0;
 const modules = new Map<string, TestModule>();
 
-// @ts-expect-error
-Symbol.dispose = Symbol.for('Symbol.dispose');
+// @ts-expect-error -- This was backported some time in nodejs v18.
+Symbol.dispose ??= Symbol.for("Symbol.dispose");
 
 interface Environment {
 	readonly context: Context;
@@ -145,7 +145,10 @@ export class TestModule {
 				import("hot:test/adapter"),
 				import("hot:test/reloadable"),
 			]);
-			export const acquire = Reloadable.makeAcquire((specifier, attributes) => import(specifier, attributes), { silent: true });
+			export const acquire = Reloadable.makeAcquire(
+				(specifier, attributes) => import(specifier, attributes),
+				{ silent: true },
+				undefined);
 			export const adapter = Adapter.adapter;
 			globalThis.expect = Jest.expect;\n`, {
 				context: environment.context,
