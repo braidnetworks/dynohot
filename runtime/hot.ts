@@ -288,7 +288,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 	 * Mark this module as not-updatable. If this module needs to be updated then the update will
 	 * fail.
 	 */
-	decline() {
+	decline(): void {
 		this.#declined = true;
 	}
 
@@ -297,7 +297,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 	 * receives a parameter `data` which can be used to store arbitrary data. The same `data` object
 	 * will be passed to the next instance via `import.meta.hot.data`.
 	 */
-	dispose(onDispose: (data: Data) => Promise<void> | void) {
+	dispose(onDispose: (data: Data) => Promise<void> | void): void {
 		assert.ok(typeof onDispose === "function");
 		this.#destructors.push(data => onDispose(data));
 	}
@@ -306,7 +306,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 	 * Mark this module as invalidated. If an update is in progress then this will cancel a
 	 * self-accept. If an update is not in progress then one will be scheduled.
 	 */
-	invalidate() {
+	invalidate(): void {
 		this.#invalidated = true;
 		void this.#module.application.requestUpdate();
 	}
@@ -315,7 +315,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 	 * Similar to `dispose`, but this is invoked when the module is removed from the dependency
 	 * graph entirely.
 	 */
-	prune(onPrune: () => Promise<void> | void) {
+	prune(onPrune: () => Promise<void> | void): void {
 		this.#destructors.push((data, prune) => {
 			if (prune) {
 				return onPrune();

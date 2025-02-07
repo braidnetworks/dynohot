@@ -13,7 +13,7 @@ export interface Options {
  * When manually registering the loader this function should be used instead of `register` from
  * "node:module". Or just `--import dynohot` on the command line.
  */
-export function register(options: Options) {
+export function register(options: Options): void {
 	registerLoader("dynohot/loader", {
 		parentURL: import.meta.url,
 		data: {

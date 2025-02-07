@@ -18,7 +18,7 @@ export class LoaderHot {
 		this.#url = url;
 	}
 
-	invalidate() {
+	invalidate(): void {
 		this.#port.postMessage(this.#url);
 	}
 }
