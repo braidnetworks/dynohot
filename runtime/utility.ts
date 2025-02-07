@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import { createRequire } from "node:module";
 import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import Fn from "dynohot/functional";
+import { Fn } from "@braidai/lang/functional";
 
 /** @internal */
 export type NotPromiseLike =

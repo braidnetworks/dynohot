@@ -3,8 +3,9 @@ import type { MessagePort } from "node:worker_threads";
 import * as assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import * as fs from "node:fs/promises";
+import { mappedPrimitiveComparator } from "@braidai/lang/comparator";
+import { Fn } from "@braidai/lang/functional";
 import convertSourceMap from "convert-source-map";
-import Fn from "dynohot/functional";
 import { maybeThen } from "dynohot/runtime/utility";
 import { LoaderHot } from "./loader-hot.js";
 import { transformModuleSource } from "./transform.js";
@@ -38,7 +39,7 @@ function extractImportAttributes(params: URLSearchParams): ImportAttributes {
 	const entries = Array.from(Fn.transform(
 		Fn.filter(params, entry => entry[0] === "with"),
 		entry => new URLSearchParams(entry[1])));
-	entries.sort(Fn.mappedPrimitiveComparator(entry => entry[0]));
+	entries.sort(mappedPrimitiveComparator(entry => entry[0]));
 	return Object.fromEntries(entries);
 }
 

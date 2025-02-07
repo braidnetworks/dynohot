@@ -2,7 +2,7 @@ import type { ReloadableModuleInstance } from "./instance.js";
 import type { ModuleController } from "./module.js";
 import * as assert from "node:assert/strict";
 import { EOL } from "node:os";
-import Fn from "dynohot/functional";
+import { Fn } from "@braidai/lang/functional";
 import { ReloadableModuleController } from "./controller.js";
 import { ModuleStatus } from "./module.js";
 import { makeRelative, plural } from "./utility.js";

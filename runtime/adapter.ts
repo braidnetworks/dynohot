@@ -1,5 +1,5 @@
 import type { AbstractModuleController, AbstractModuleInstance, ModuleNamespace, ResolvedBinding } from "./module.js";
-import Fn from "dynohot/functional";
+import { Fn } from "@braidai/lang/functional";
 import { ModuleStatus } from "./module.js";
 
 /**

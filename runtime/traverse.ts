@@ -1,6 +1,7 @@
 import type { NotPromiseLike } from "./utility.js";
 import * as assert from "node:assert/strict";
-import Fn, { mappedNumericComparator } from "dynohot/functional";
+import { mappedNumericComparator } from "@braidai/lang/comparator";
+import { Fn } from "@braidai/lang/functional";
 
 interface TraversalState<Result = unknown> {
 	readonly state: CyclicState<Result>;

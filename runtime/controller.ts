@@ -6,7 +6,8 @@ import type { MessagePort } from "node:worker_threads";
 import * as assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { EOL } from "node:os";
-import Fn from "dynohot/functional";
+import { Fn } from "@braidai/lang/functional";
+import { somePredicate } from "@braidai/lang/predicate";
 import { BindingType } from "./binding.js";
 import { dispose, isAccepted, isAcceptedSelf, isDeclined, isInvalidated, prune, tryAccept, tryAcceptSelf } from "./hot.js";
 import { ReloadableModuleInstance } from "./instance.js";
@@ -171,7 +172,7 @@ function logUpdate(app: HotApplication, update: UpdateResult) {
 		}
 
 		case UpdateStatus.unaccepted: {
-			const messages = [ ...Fn.transform(update.chain, flattenInvalidationTree) ];
+			const messages = [ ...Fn.transform(update.chain, message => flattenInvalidationTree(message)) ];
 			app.log(
 				"A pending update was not accepted, and reached the root module:" +
 				messages.map(([ message ]) => `${EOL}${message}`).join(""),
@@ -374,9 +375,9 @@ export class ReloadableModuleController implements AbstractModuleController {
 			usesDynamicImport,
 			loadedModules,
 			indirectExportEntries: new Map(function*() {
-				const predicate = Fn.somePredicate<BindingEntry, ExportIndirectEntry | ExportIndirectStarEntry>([
-					discriminatedTypePredicate(BindingType.indirectExport),
-					discriminatedTypePredicate(BindingType.indirectStarExport),
+				const predicate = somePredicate([
+					discriminatedTypePredicate<BindingEntry, ExportIndirectEntry>(BindingType.indirectExport),
+					discriminatedTypePredicate<BindingEntry, ExportIndirectStarEntry>(BindingType.indirectStarExport),
 				]);
 				for (const moduleRequest of loadedModules) {
 					for (const binding of Fn.filter(moduleRequest.bindings, predicate)) {

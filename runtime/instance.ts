@@ -3,7 +3,8 @@ import type { Data } from "./hot.js";
 import type { AbstractModuleInstance, ModuleController, ModuleExports, Resolution, SelectModuleInstance } from "./module.js";
 import type { WithResolvers } from "./utility.js";
 import * as assert from "node:assert/strict";
-import Fn from "dynohot/functional";
+import { mappedPrimitiveComparator } from "@braidai/lang/comparator";
+import { Fn } from "@braidai/lang/functional";
 import { BindingType } from "./binding.js";
 import { ReloadableModuleController } from "./controller.js";
 import { Hot, didDynamicImport } from "./hot.js";
@@ -401,7 +402,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			}
 			const unambiguousResolutions = Array.from(
 				Fn.filter(resolutions, ([ name ]) => !ambiguousNames.has(name)));
-			unambiguousResolutions.sort(Fn.mappedPrimitiveComparator(([ name ]) => name));
+			unambiguousResolutions.sort(mappedPrimitiveComparator(([ name ]) => name));
 			Object.defineProperties(
 				namespace,
 				Object.fromEntries(Fn.map(
