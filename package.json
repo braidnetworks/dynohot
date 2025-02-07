@@ -15,12 +15,13 @@
 		}
 	},
 	"imports": {
+		"#dynohot/*": "./dist/*.js",
 		"#port": "./dist/runtime/port.js"
 	},
 	"scripts": {
 		"lint": "eslint --max-warnings=0 --report-unused-disable-directives .",
 		"prepare": "rm -rf dist && tsc -b",
-		"test": "NODE_OPTIONS='--no-warnings --experimental-vm-modules' npx jest"
+		"test": "node --no-warnings --experimental-vm-modules --enable-source-maps --test-reporter=spec --test 'dist/__tests__/**/*.js'"
 	},
 	"dependencies": {
 		"@babel/core": "^7.24.7",
@@ -34,17 +35,13 @@
 		"@babel/preset-env": "^7.24.7",
 		"@babel/preset-typescript": "^7.24.7",
 		"@braidai/eslintrc": "^1.0.0",
-		"@jest/globals": "^29.7.0",
-		"@jest/types": "^29.6.3",
 		"@types/babel__core": "^7.20.5",
 		"@types/babel__generator": "^7.6.8",
 		"@types/babel__traverse": "^7.20.6",
 		"@types/convert-source-map": "^2.0.2",
 		"@types/node": "^22.9.3",
-		"babel-jest": "^29.7.0",
 		"babel-plugin-transform-import-meta": "^2.2.1",
 		"eslint": "^8.52.0",
-		"jest": "^29.7.0",
 		"typescript": "^5.5.2"
 	},
 	"repository": {

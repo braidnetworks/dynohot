@@ -27,7 +27,7 @@
 	"files.exclude": {
 		"**/dist": true,
 		"**/node_modules": true,
-		"**/tsconfig.tsbuildinfo": true,
+		"package-lock.json": true,
 	},
 	"files.insertFinalNewline": true,
 	"files.trimTrailingWhitespace": true,

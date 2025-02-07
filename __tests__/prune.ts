@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
-import { expect, test } from "@jest/globals";
-import { UpdateStatus } from "../runtime/controller.js";
+import * as assert from "node:assert/strict";
+import { test } from "node:test";
+import { UpdateStatus } from "dynohot/runtime/controller";
 import { TestModule } from "./__fixtures__/module.js";
 
-test("removing module node should work", async () => {
+await test("removing module node should work", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${child};
 		import.meta.hot.accept(${child});`);
@@ -14,31 +15,31 @@ test("removing module node should work", async () => {
 	await main.dispatch();
 	child.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
-	expect(main.global.seen).toBe(true);
+	assert.strictEqual(result?.type, UpdateStatus.success);
+	assert.strictEqual(main.global.seen, true);
 });
 
-test("dispose and prune runs together", async () => {
+await test("dispose and prune runs together", async () => {
 	const main = new TestModule(() =>
 		`import ${child};
 		import.meta.hot.accept();`);
 	const child = new TestModule(() =>
 		`globalThis.seen = 0;
 		import.meta.hot.dispose(() => {
-			expect(++seen).toBe(4);
+			assert.strictEqual(++seen, 4);
 		});
 		import.meta.hot.prune(() => {
-			expect(++seen).toBe(3);
+			assert.strictEqual(++seen, 3);
 		});
 		import.meta.hot.dispose(() => {
-			expect(++seen).toBe(2);
+			assert.strictEqual(++seen, 2);
 		});
 		import.meta.hot.prune(() => {
-			expect(++seen).toBe(1);
+			assert.strictEqual(++seen, 1);
 		});`);
 	await main.dispatch();
 	main.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
-	expect(main.global.seen).toBe(4);
+	assert.strictEqual(result?.type, UpdateStatus.success);
+	assert.strictEqual(main.global.seen, 4);
 });
