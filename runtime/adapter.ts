@@ -1,5 +1,5 @@
 import type { AbstractModuleController, AbstractModuleInstance, ModuleNamespace, ResolvedBinding } from "./module.js";
-import Fn from "dynohot/functional";
+import { Fn } from "@braidai/lang/functional";
 import { ModuleStatus } from "./module.js";
 
 /**
@@ -9,15 +9,17 @@ import { ModuleStatus } from "./module.js";
  * @internal
  */
 export class AdapterModuleController implements AbstractModuleController, AbstractModuleInstance {
-	private readonly namespace: ResolvedBinding<ModuleNamespace>;
-	private readonly resolutions: ReadonlyMap<string, () => unknown>;
 	readonly reloadable = false;
 	readonly state = { status: ModuleStatus.evaluated };
+	private readonly namespace: ResolvedBinding<ModuleNamespace>;
+	private readonly resolutions: ReadonlyMap<string, () => unknown>;
+	private readonly url;
 
 	constructor(
-		private readonly url: string,
+		url: string,
 		namespace: Record<string, unknown>,
 	) {
+		this.url = url;
 		// Memoize resolved exports to maintain equality of the resolution. Note that this will fail
 		// under some corner cases like:
 		//

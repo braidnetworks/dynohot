@@ -2,10 +2,12 @@ import type { BindingEntry, ExportIndirectEntry, ExportIndirectStarEntry, Export
 import type { DynamicImport, LoadedModuleRequestEntry, ModuleBody, ModuleDeclaration } from "./declaration.js";
 import type { AbstractModuleController } from "./module.js";
 import type { ModuleFormat } from "node:module";
+import type { MessagePort } from "node:worker_threads";
 import * as assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { EOL } from "node:os";
-import Fn from "dynohot/functional";
+import { Fn } from "@braidai/lang/functional";
+import { somePredicate } from "@braidai/lang/predicate";
 import { BindingType } from "./binding.js";
 import { dispose, isAccepted, isAcceptedSelf, isDeclined, isInvalidated, prune, tryAccept, tryAcceptSelf } from "./hot.js";
 import { ReloadableModuleInstance } from "./instance.js";
@@ -15,12 +17,14 @@ import { debounceAsync, debounceTimer, discriminatedTypePredicate, evictModule, 
 import { FileWatcher } from "./watcher.js";
 
 /** @internal */
-export function makeAcquire(dynamicImport: DynamicImport, params: Record<string, unknown>) {
-	const emitter = new EventEmitter;
+export function makeAcquire(dynamicImport: DynamicImport, params: Record<string, unknown>, port: MessagePort | undefined) {
+	const emitter = new EventEmitter();
 	const useLogs = params.silent === undefined;
 	const application: HotApplication = {
 		dynamicImport,
 		emitter,
+		fileWatcher: new FileWatcher(),
+		loaderPort: port,
 		requestUpdate: defaultRequestUpdate,
 		requestUpdateResult: defaultRequestUpdateResult,
 		log(message, ...params) {
@@ -52,7 +56,9 @@ async function defaultRequestUpdateResult(): Promise<never> {
 export interface HotApplication {
 	dynamicImport: DynamicImport;
 	emitter: EventEmitter;
-	log: (message: string, ...params: any[]) => void;
+	fileWatcher: FileWatcher;
+	loaderPort: MessagePort | undefined;
+	log: (message: string, ...params: unknown[]) => void;
 	requestUpdate: () => Promise<void>;
 	requestUpdateResult: () => Promise<UpdateResult>;
 }
@@ -166,7 +172,7 @@ function logUpdate(app: HotApplication, update: UpdateResult) {
 		}
 
 		case UpdateStatus.unaccepted: {
-			const messages = [ ...Fn.transform(update.chain, flattenInvalidationTree) ];
+			const messages = [ ...Fn.transform(update.chain, message => flattenInvalidationTree(message)) ];
 			app.log(
 				"A pending update was not accepted, and reached the root module:" +
 				messages.map(([ message ]) => `${EOL}${message}`).join(""),
@@ -209,7 +215,9 @@ const acquireVisitIndex = makeAcquireVisitIndex();
 
 /** @internal */
 export class ReloadableModuleController implements AbstractModuleController {
+	readonly application;
 	readonly reloadable = true;
+	readonly url;
 
 	/** The currently "active" module instance */
 	private current: ReloadableModuleInstance | undefined;
@@ -227,32 +235,44 @@ export class ReloadableModuleController implements AbstractModuleController {
 	private version = 0;
 
 	constructor(
-		public readonly application: HotApplication,
-		public readonly url: string,
+		application: HotApplication,
+		url: string,
 	) {
-		const watcher = new FileWatcher();
-		watcher.watch(this.url, () => {
-			void (async () => {
-				const instance = this.staging ?? this.current;
-				assert.ok(instance !== undefined);
-				const { importAttributes } = instance.declaration;
-				const params = new URLSearchParams([
-					[ "url", this.url ],
-					[ "version", String(++this.version) ],
-					[ "format", instance.declaration.format ],
-					...Fn.map(
-						Object.entries(importAttributes),
-						([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
-				] as Iterable<[ string, string ]>);
-				try {
-					await import(`hot:reload?${String(params)}`);
-				} catch (error) {
-					this.application.log(`Error in module '%s':${EOL}%O`, this.url, error);
-					return;
-				}
-				void this.application.requestUpdate();
-			})();
+		this.application = application;
+		this.url = url;
+
+		const reload = () => void (async () => {
+			const instance = this.staging ?? this.current;
+			assert.ok(instance !== undefined);
+			const { importAttributes } = instance.declaration;
+			const params = new URLSearchParams([
+				[ "url", this.url ],
+				[ "version", String(++this.version) ],
+				[ "format", instance.declaration.format ],
+				...Fn.map(
+					Object.entries(importAttributes),
+					([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
+			] as Iterable<[ string, string ]>);
+			try {
+				await import(`hot:reload?${String(params)}`);
+			} catch (error) {
+				this.application.log(`Error in module '%s':${EOL}%O`, this.url, error);
+				return;
+			}
+			void this.application.requestUpdate();
+		})();
+		// TODO [marcel 2025-02-05]: This returns a handle to an unlistener which should probably be
+		// invoked on `prune`.
+		application.fileWatcher.watch(this.url, reload);
+		application.loaderPort?.on("message", message => {
+			if (message === this.url) {
+				reload();
+			}
 		});
+	}
+
+	private static selectCurrent(this: void, controller: ReloadableModuleController) {
+		return controller.current;
 	}
 
 	async main(this: ReloadableModuleController) {
@@ -363,9 +383,9 @@ export class ReloadableModuleController implements AbstractModuleController {
 			usesDynamicImport,
 			loadedModules,
 			indirectExportEntries: new Map(function*() {
-				const predicate = Fn.somePredicate<BindingEntry, ExportIndirectEntry | ExportIndirectStarEntry>([
-					discriminatedTypePredicate(BindingType.indirectExport),
-					discriminatedTypePredicate(BindingType.indirectStarExport),
+				const predicate = somePredicate([
+					discriminatedTypePredicate<BindingEntry, ExportIndirectEntry>(BindingType.indirectExport),
+					discriminatedTypePredicate<BindingEntry, ExportIndirectStarEntry>(BindingType.indirectStarExport),
 				]);
 				for (const moduleRequest of loadedModules) {
 					for (const binding of Fn.filter(moduleRequest.bindings, predicate)) {
@@ -811,9 +831,5 @@ export class ReloadableModuleController implements AbstractModuleController {
 			type: UpdateStatus.success,
 			stats,
 		};
-	}
-
-	private static selectCurrent(this: void, controller: ReloadableModuleController) {
-		return controller.current;
 	}
 }

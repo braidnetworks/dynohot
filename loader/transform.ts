@@ -2,8 +2,8 @@ import type { NodePath, Visitor } from "@babel/traverse";
 import type { BindingEntry } from "dynohot/runtime/binding";
 import * as assert from "node:assert/strict";
 import { parse, types as t } from "@babel/core";
+import { Fn } from "@braidai/lang/functional";
 import convertSourceMap from "convert-source-map";
-import Fn from "dynohot/functional";
 import { BindingType } from "dynohot/runtime/binding";
 import { generate, makeRootPath, traverse } from "./babel-shim.js";
 
@@ -22,7 +22,8 @@ interface ImportEntry {
 	bindings: BindingEntry[];
 }
 
-const deprecatedAssertSyntax = /^1[6-9]/.test(process.versions.node);
+// version < v22
+const deprecatedAssertSyntax = /^(?:16|17|18|19|20|21)/.test(process.versions.node);
 
 export function transformModuleSource(
 	filename: string,
@@ -41,7 +42,7 @@ export function transformModuleSource(
 				parserOpts: {
 					plugins: [
 						"explicitResourceManagement",
-						[ "importAttributes", { deprecatedAssertSyntax: true } ],
+						[ "importAttributes", { deprecatedAssertSyntax } ],
 					],
 				},
 			});

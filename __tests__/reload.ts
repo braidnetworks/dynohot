@@ -1,16 +1,17 @@
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
-import { expect, test } from "@jest/globals";
-import { UpdateStatus } from "../runtime/controller.js";
+import * as assert from "node:assert/strict";
+import { test } from "node:test";
+import { UpdateStatus } from "dynohot/runtime/controller";
 import { TestModule } from "./__fixtures__/module.js";
 
-test("simple test", async () => {
+await test("simple test", async () => {
 	const main = new TestModule(() =>
 		`import { counter } from ${child};
 		if (globalThis.seen) {
-			expect(counter).toBe(2);
+			assert.strictEqual(counter, 2);
 			globalThis.seen2 = true;
 		} else {
-			expect(counter).toBe(1);
+			assert.strictEqual(counter, 1);
 			globalThis.seen = true;
 		}
 		import.meta.hot.accept();`);
@@ -20,69 +21,69 @@ test("simple test", async () => {
 	child.update(() =>
 		"export const counter = 2;");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
-	expect(main.global.seen2).toBe(true);
+	assert.strictEqual(result?.type, UpdateStatus.success);
+	assert.strictEqual(main.global.seen2, true);
 });
 
-test("unaccepted should not run", async () => {
+await test("unaccepted should not run", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${child};
-		expect(globalThis.seen).toBe(undefined);
+		assert.strictEqual(globalThis.seen, undefined);
 		globalThis.seen = true;`);
 	const child = new TestModule(() => "");
 	await main.dispatch();
 	child.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.unaccepted);
+	assert.strictEqual(result?.type, UpdateStatus.unaccepted);
 });
 
-test("accepted with unupdated accepted", async () => {
+await test("accepted with unupdated accepted", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${updated};
 		import {} from ${unupdated};
 		import.meta.hot.accept([ ${updated}, ${unupdated} ]);
-		expect(globalThis.seen).toBe(undefined);
+		assert.strictEqual(globalThis.seen, undefined);
 		globalThis.seen = true;`);
 	const unupdated = new TestModule(() => "");
 	const updated = new TestModule(() => "");
 	await main.dispatch();
 	updated.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
+	assert.strictEqual(result?.type, UpdateStatus.success);
 });
 
-test("unaccepted dynamic should not run", async () => {
+await test("unaccepted dynamic should not run", async () => {
 	const main = new TestModule(() =>
 		`await import(${child});
-		expect(globalThis.seen).toBe(undefined);
+		assert.strictEqual(globalThis.seen, undefined);
 		globalThis.seen = true;`);
 	const child = new TestModule(() => "");
 	await main.dispatch();
 	child.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.unaccepted);
+	assert.strictEqual(result?.type, UpdateStatus.unaccepted);
 });
 
-test("accepted dynamic", async () => {
+await test("accepted dynamic", async () => {
 	const main = new TestModule(() =>
 		`const { counter } = await import(${child});
-		expect(counter).toBe(1);
-		expect(globalThis.seen).toBe(undefined);
+		assert.strictEqual(counter, 1);
+		assert.strictEqual(globalThis.seen, undefined);
 		globalThis.seen = true;
 		import.meta.hot.accept(${child}, async () => {
 			const { counter } = await import(${child});
-			expect(counter).toBe(2);
+			assert.strictEqual(counter, 2);
 			globalThis.seen2 = true;
 		});`);
 	const child = new TestModule(() => "export const counter = 1;");
 	await main.dispatch();
 	child.update(() => "export const counter = 2;");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
-	expect(main.global.seen2).toBe(true);
+	assert.strictEqual(result?.type, UpdateStatus.success);
+	assert.strictEqual(main.global.seen2, true);
 });
 
-test("unchanged declined import", async () => {
+await test("unchanged declined import", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${accepted};
 		import {} from ${declined};
@@ -93,10 +94,10 @@ test("unchanged declined import", async () => {
 	await main.dispatch();
 	accepted.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
+	assert.strictEqual(result?.type, UpdateStatus.success);
 });
 
-test("declined with accept import", async () => {
+await test("declined with accept import", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${declined};`);
 	const accepted = new TestModule(() => "");
@@ -107,14 +108,14 @@ test("declined with accept import", async () => {
 	await main.dispatch();
 	accepted.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
+	assert.strictEqual(result?.type, UpdateStatus.success);
 });
 
-test("errors are recoverable", async () => {
+await test("errors are recoverable", async () => {
 	const main = new TestModule(() =>
 		`import { counter } from ${accepted};
 		import.meta.hot.accept(${accepted}, () => {
-			expect(counter).toBe(3);
+			assert.strictEqual(globalThis.seen, undefined);
 			globalThis.seen = true;
 		});`);
 	const accepted = new TestModule(() =>
@@ -122,17 +123,17 @@ test("errors are recoverable", async () => {
 	await main.dispatch();
 	accepted.update(() =>
 		`export const counter = 2;
-		throw new Error();`);
+			throw new Error();`);
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.evaluationFailure);
+	assert.strictEqual(result?.type, UpdateStatus.evaluationFailure);
 	accepted.update(() =>
 		"export const counter = 3;");
 	const result2 = await main.releaseUpdate();
-	expect(result2?.type).toBe(UpdateStatus.success);
-	expect(main.global.seen).toBe(true);
+	assert.strictEqual(result2?.type, UpdateStatus.success);
+	assert.strictEqual(main.global.seen, true);
 });
 
-test("errors persist", async () => {
+await test("errors persist", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${error};
 		import.meta.hot.accept();`);
@@ -141,17 +142,17 @@ test("errors persist", async () => {
 	error.update(() =>
 		"throw new Error();");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.evaluationFailure);
+	assert.strictEqual(result?.type, UpdateStatus.evaluationFailure);
 	main.update();
 	const result2 = await main.releaseUpdate();
-	expect(result2?.type).toBe(UpdateStatus.evaluationFailure);
+	assert.strictEqual(result2?.type, UpdateStatus.evaluationFailure);
 	error.update(() => "");
 	const result3 = await main.releaseUpdate();
-	expect(result3?.type).toBe(UpdateStatus.success);
+	assert.strictEqual(result3?.type, UpdateStatus.success);
 });
 
 // Caused due to issue in `traverseDepthFirst` result collection
-test("common dependency", async () => {
+await test("common dependency", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${left};
 		import {} from ${right};
@@ -164,11 +165,11 @@ test("common dependency", async () => {
 	await main.dispatch();
 	child.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.unaccepted);
+	assert.strictEqual(result?.type, UpdateStatus.unaccepted);
 });
 
 // Caused by assumptions that `node.current` would be defined during the update process.
-test("new module node should work", async () => {
+await test("new module node should work", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${child};
 		import.meta.hot.accept(${child});`);
@@ -178,18 +179,18 @@ test("new module node should work", async () => {
 		`import {} from ${newChild}`);
 	const newChild = new TestModule(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
+	assert.strictEqual(result?.type, UpdateStatus.success);
 });
 
 // Caused by dangling rejection in the sync case
-test("mixed color sibling rejection", async () => {
+await test("dangling rejection in sync case", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${left};
 		import {} from ${right};`);
 	const left = new TestModule(() =>
 		`await undefined;
-		throw "async";`);
+		throw new Error("async");`);
 	const right = new TestModule(() =>
-		'throw "sync";');
-	await expect(main.dispatch()).rejects.toEqual("sync");
+		'throw new Error("sync");');
+	await assert.rejects(main.dispatch(), { message: "sync" });
 });

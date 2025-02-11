@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import { createRequire } from "node:module";
 import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import Fn from "dynohot/functional";
+import { Fn } from "@braidai/lang/functional";
 
 /** @internal */
 export type NotPromiseLike =
@@ -72,9 +72,12 @@ export function debounceTimer<Result>(ms: number, fn: () => MaybePromise<Result>
  * @internal
  */
 export const evictModule = function() {
+	interface SecretLoader {
+		esmLoader: { loadCache?: Map<string, unknown> };
+	}
 	try {
 		const require = createRequire(import.meta.url);
-		const loader = require("internal/process/esm_loader");
+		const loader = require("internal/process/esm_loader") as unknown as SecretLoader;
 		const { loadCache } = loader.esmLoader;
 		if (loadCache) {
 			return (url: string) => {

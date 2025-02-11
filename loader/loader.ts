@@ -1,33 +1,37 @@
 import type { InitializeHook, LoadHook, ModuleFormat, ResolveFnOutput, ResolveHook } from "node:module";
+import type { MessagePort } from "node:worker_threads";
 import * as assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import * as fs from "node:fs/promises";
+import { mappedPrimitiveComparator } from "@braidai/lang/comparator";
+import { Fn } from "@braidai/lang/functional";
 import convertSourceMap from "convert-source-map";
-import Fn from "dynohot/functional";
 import { maybeThen } from "dynohot/runtime/utility";
+import { LoaderHot } from "./loader-hot.js";
 import { transformModuleSource } from "./transform.js";
 
-export type { Hot } from "dynohot/hot";
+export type { Hot } from "dynohot/runtime/hot";
 
 type ImportAttributes = Record<string, string>;
 
-export interface DynohotLoaderOptions {
+/** @internal */
+export interface LoaderParameters {
 	ignore?: RegExp;
+	port: MessagePort;
 	silent?: boolean;
 }
 
 let ignorePattern: RegExp;
+let port: MessagePort;
 let runtimeURL: string;
 
 /** @internal */
-export const initialize: InitializeHook<DynohotLoaderOptions> = ({
-	ignore: ignoreOption = /[/\\]node_modules[/\\]/,
-	silent = false,
-} = {}) => {
-	ignorePattern = ignoreOption;
+export const initialize: InitializeHook<LoaderParameters> = options => {
+	port = options.port;
+	ignorePattern = options.ignore ?? /[/\\]node_modules[/\\]/;
 	const root = String(new URL("..", new URL(import.meta.url)));
 	runtimeURL = `${root}runtime/runtime.js?${String(new URLSearchParams({
-		...silent ? { silent: "" } : {},
+		...options.silent ? { silent: "" } : {},
 	}))}`;
 };
 
@@ -35,11 +39,12 @@ function extractImportAttributes(params: URLSearchParams): ImportAttributes {
 	const entries = Array.from(Fn.transform(
 		Fn.filter(params, entry => entry[0] === "with"),
 		entry => new URLSearchParams(entry[1])));
-	entries.sort(Fn.mappedPrimitiveComparator(entry => entry[0]));
+	entries.sort(mappedPrimitiveComparator(entry => entry[0]));
 	return Object.fromEntries(entries);
 }
 
-const deprecatedAssertSyntax = /^1[6-9]/.test(process.versions.node);
+// 16.14.0 >= version < 18.20.0
+const deprecatedAssertSyntax = /^(?:16|17|18\.1?[0-9]\.)/.test(process.versions.node);
 
 const makeAdapterModule = (url: string, importAttributes: ImportAttributes) => {
 	const encodedURL = JSON.stringify(url);
@@ -54,7 +59,7 @@ export default function() { return module; };\n`
 
 const makeJsonModule = (url: string, json: string, importAttributes: ImportAttributes) =>
 // eslint-disable-next-line @stylistic/indent
-`import { acquire } from "hot:runtime"
+`import { acquire } from "hot:runtime";
 function* execute() {
 	yield [ () => {}, { default: () => json } ];
 	yield;
@@ -66,7 +71,7 @@ export default function module() {
 module().load({ async: false, execute }, null, false, "json", ${JSON.stringify(importAttributes)}, []);\n`;
 
 const makeReloadableModule = async (url: string, source: string, importAttributes: ImportAttributes) => {
-	const sourceMap = await async function() {
+	const sourceMap = await async function(): Promise<unknown> {
 		try {
 			const map = convertSourceMap.fromComment(source);
 			return map.toObject();
@@ -127,18 +132,17 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 		const resolutionURL = new URL(specifier);
 		const resolutionSpecifier = resolutionURL.searchParams.get("specifier");
 		assert.ok(resolutionSpecifier !== null);
-		const importAssertions = extractImportAttributes(resolutionURL.searchParams);
+		const importAttributes = extractImportAttributes(resolutionURL.searchParams);
 		return maybeThen(function*() {
 			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
 				...context,
 				parentURL: parentModuleURL,
-				// @ts-expect-error
-				importAssertions,
+				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: importAttributes,
 			});
 			const params = new URLSearchParams(Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"));
 			return {
 				...result,
-				importAssertions: {},
+				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: {},
 				url: `hot:module:${result.url}?${String(params)}`,
 			};
 		});
@@ -150,18 +154,17 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 		assert.ok(resolutionSpecifier !== null);
 		const parentModuleURL = resolutionURL.searchParams.get("parent");
 		assert.ok(parentModuleURL !== null);
-		const importAssertions = extractImportAttributes(resolutionURL.searchParams);
+		const importAttributes = extractImportAttributes(resolutionURL.searchParams);
 		return maybeThen(function*() {
 			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
 				...context,
 				parentURL: parentModuleURL,
-				// @ts-expect-error
-				importAssertions,
+				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: importAttributes,
 			});
 			const params = new URLSearchParams(Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"));
 			return {
 				...result,
-				importAssertions: {},
+				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: {},
 				url: `hot:module:${result.url}?${String(params)}`,
 			};
 		});
@@ -215,19 +218,19 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 		const pathname = url.pathname;
 		switch (pathname.split(":", 1)[0]) {
 			case "adapter": {
-				const importAssertions = extractImportAttributes(url.searchParams);
+				const importAttributes = extractImportAttributes(url.searchParams);
 				const moduleURL = url.searchParams.get("url");
-				assert.ok(moduleURL);
+				assert.ok(moduleURL !== null);
 				return {
 					shortCircuit: true,
 					format: "module",
-					source: makeAdapterModule(moduleURL, importAssertions),
+					source: makeAdapterModule(moduleURL, importAttributes),
 				};
 			}
 
 			case "main": {
 				const moduleURL = url.searchParams.get("url");
-				assert.ok(moduleURL);
+				assert.ok(moduleURL !== null);
 				const controllerSpecifier = `hot:static?specifier=${encodeURIComponent(moduleURL)}`;
 				return {
 					shortCircuit: true,
@@ -242,12 +245,11 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 				const moduleURL = pathname.replace("module:", "");
 				assert.ok(moduleURL);
 				const importAttributes = extractImportAttributes(url.searchParams);
+				const hot = new LoaderHot(moduleURL, port);
 				const result = await nextLoad(moduleURL, {
 					...context,
-					// TODO [marcel 2024-04-27]: remove after nodejs v18(?) is not supported
-					// @ts-expect-error
-					importAssertions: importAttributes,
-					importAttributes,
+					hot,
+					[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: importAttributes,
 				});
 				if (!ignorePattern.test(moduleURL)) {
 					if (result.format === "module") {

@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
-import { expect, jest, test } from "@jest/globals";
+import * as assert from "node:assert/strict";
+import { test } from "node:test";
 import { UpdateStatus } from "dynohot/runtime/controller";
 import { TestModule } from "./__fixtures__/module.js";
 
-test("as default", async () => {
+await test("as default", async () => {
 	const main = new TestModule(() =>
 		`import name from ${child};
-		expect(name).toBe("child");`);
+		assert.strictEqual(name, "child");`);
 	const child = new TestModule(() =>
 		`const name = "child";
 		export { name as default };`);
@@ -14,7 +15,7 @@ test("as default", async () => {
 });
 
 // Caused by a misreading of "16.2.1.5.3.1 InnerModuleEvaluation -> 16.b.i"
-test("circular evaluation order", async () => {
+await test("circular evaluation order", async () => {
 	const main: TestModule = new TestModule(() =>
 		`import {} from ${first};
 		import {} from ${second};
@@ -26,12 +27,12 @@ test("circular evaluation order", async () => {
 		`import {} from ${first};
 		globalThis.order += ";second";`);
 	await main.dispatch();
-	expect(main.global.order).toBe("undefined;first;second;main");
+	assert.strictEqual(main.global.order, "undefined;first;second;main");
 });
 
 // Caused due to invalid `relink` testing in the evaluation phase. We were relinking the module's
 // previous body to try `accept` handlers which would cause a link error.
-test("link error is recoverable from parent", async () => {
+await test("link error is recoverable from parent", async () => {
 	const main = new TestModule(() =>
 		`import { symbol } from ${child};
 		import.meta.hot.accept();`);
@@ -40,23 +41,23 @@ test("link error is recoverable from parent", async () => {
 	await main.dispatch();
 	child.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.linkError);
+	assert.strictEqual(result?.type, UpdateStatus.linkError);
 	main.update(() => `import {} from ${child};`);
 	const result2 = await main.releaseUpdate();
-	expect(result2?.type).toBe(UpdateStatus.success);
+	assert.strictEqual(result2?.type, UpdateStatus.success);
 });
 
 // I never got around to implementing the cyclic aggregate prevention clauses of the specification.
-test("infinite re-export", async () => {
+await test("infinite re-export", async () => {
 	const main = new TestModule(() =>
 		`import { symbol } from ${child};
 		import.meta.hot.accept();`);
 	const child: TestModule = new TestModule(() =>
 		`export * from ${child};`);
-	await expect(main.dispatch()).rejects.toThrowError(SyntaxError);
+	await assert.rejects(main.dispatch(), SyntaxError);
 });
 
-test("circular indirect export", async () => {
+await test("circular indirect export", async () => {
 	const main = new TestModule(() =>
 		`import { name, indirect } from ${circular};`);
 	const circular: TestModule = new TestModule(() =>
@@ -66,15 +67,15 @@ test("circular indirect export", async () => {
 });
 
 // Babel checks this for us
-test("duplicate named export", async () => {
+await test("duplicate named export", async () => {
 	const main = new TestModule(() =>
 		`export const name = 1;
 		export const name = 2`);
-	await expect(main.dispatch()).rejects.toThrowError(SyntaxError);
+	await assert.rejects(main.dispatch(), SyntaxError);
 });
 
 // Caused by combining the link + evaluation phases into a single yield
-test("hoisted functions run correctly", async () => {
+await test("hoisted functions run correctly", async () => {
 	const main: TestModule = new TestModule(() =>
 		`import { value } from ${child};
 		export function hoisted() { value; }`);
@@ -85,7 +86,7 @@ test("hoisted functions run correctly", async () => {
 	await main.dispatch();
 });
 
-test("concurrent cyclic top-level await", async () => {
+await test("concurrent cyclic top-level await", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${left};
 		import {} from ${right};
@@ -94,7 +95,7 @@ test("concurrent cyclic top-level await", async () => {
 		`import { async } from ${async};
 		import {} from ${right};
 		await async();`);
-	const right: TestModule = new TestModule(() =>
+	const right = new TestModule(() =>
 		`import { async } from ${async};
 		import {} from ${left};
 		await async();`);
@@ -111,11 +112,11 @@ test("concurrent cyclic top-level await", async () => {
 	await main.dispatch();
 	async.update();
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
+	assert.strictEqual(result?.type, UpdateStatus.success);
 });
 
 // Caused by incorrect optimization of `resolveSet`
-test("exported named module namespace", async () => {
+await test("exported named module namespace", async () => {
 	const main = new TestModule(() =>
 		`import { ns } from ${nsExport};`);
 	const nsExport = new TestModule(() =>
@@ -128,7 +129,7 @@ test("exported named module namespace", async () => {
 });
 
 // `ReloadableModuleController.dispatch` did not await existing capability if already running
-test("the halting problem", async () => {
+await test("the halting problem", async () => {
 	const main: TestModule = new TestModule(() => `await import(${main});`);
 	const execution = Promise.race([
 		main.dispatch(),
@@ -136,13 +137,12 @@ test("the halting problem", async () => {
 			setTimeout(() => resolve(123), 0);
 		}),
 	]);
-	jest.advanceTimersByTime(1);
 	const result = await execution;
-	expect(result).toBe(123);
+	assert.strictEqual(result, 123);
 });
 
 // `ReloadableModuleController.dispatch` did not await existing capability if already running
-test("hoisted function with dynamic import", async () => {
+await test("hoisted function with dynamic import", async () => {
 	const main: TestModule = new TestModule(() =>
 		`import {} from ${first};
 		export function fn() {

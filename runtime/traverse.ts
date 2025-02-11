@@ -1,6 +1,7 @@
 import type { NotPromiseLike } from "./utility.js";
 import * as assert from "node:assert/strict";
-import Fn, { mappedNumericComparator } from "dynohot/functional";
+import { mappedNumericComparator } from "@braidai/lang/comparator";
+import { Fn } from "@braidai/lang/functional";
 
 interface TraversalState<Result = unknown> {
 	readonly state: CyclicState<Result>;
@@ -179,8 +180,10 @@ export function traverseDepthFirst<
 						}(),
 					};
 				} else {
-					const forwardResults = collect(nodeIndex, cyclicForwardResults as Iterable<Iterable<Collectable<Result>>> as any);
-					const result = join(cycleNodes, forwardResults as any);
+					type AsTyped = Iterable<PromiseLike<Iterable<Collectable<Result>>> | Iterable<Collectable<Result>>>;
+					type Narrowed = Iterable<Iterable<Collectable<Result>>>;
+					const forwardResults = collect(nodeIndex, cyclicForwardResults satisfies AsTyped as Narrowed);
+					const result = join(cycleNodes, forwardResults);
 					if (typeof result?.then === "function") {
 						return {
 							sync: false,
@@ -230,13 +233,19 @@ export function traverseDepthFirst<
 	}
 }
 
-function collect<Type>(collectionIndex: number, forwardResultVectors: (readonly Collectable<Type>[])[]) {
-	return Array.from(Fn.transform(forwardResultVectors, function*(forwardResults) {
-		for (const result of forwardResults) {
-			if (result.collectionIndex !== collectionIndex) {
-				result.collectionIndex = collectionIndex;
-				yield result.value;
-			}
-		}
-	}));
+function collect<
+	Type,
+>(
+	collectionIndex: number,
+	forwardResultVectors: Iterable<Iterable<Collectable<Type>>>,
+) {
+	return Fn.pipe(
+		forwardResultVectors,
+		$$ => Fn.concat($$),
+		$$ => Fn.reject($$, result => result.collectionIndex === collectionIndex),
+		$$ => Fn.map($$, result => {
+			result.collectionIndex = collectionIndex;
+			return result.value;
+		}),
+		$$ => [ ...$$ ]);
 }
