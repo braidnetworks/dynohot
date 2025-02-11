@@ -1,6 +1,10 @@
 name: Build & lint
 on: [ push ]
 
+permissions:
+  checks: write
+  contents: write
+
 jobs:
   build:
     name: Build & lint
