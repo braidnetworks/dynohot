@@ -45,6 +45,7 @@ export function makeAcquire(dynamicImport: DynamicImport, params: Record<string,
 }
 
 function defaultRequestUpdate() {
+	1;
 	return Promise.resolve();
 }
 
