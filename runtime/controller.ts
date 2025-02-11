@@ -211,6 +211,11 @@ function *flattenInvalidationTree(chain: InvalidationChain, prefix = "", childre
 	}
 }
 
+// nb: Copy/pasted from loader
+function encodeLimited(content: string) {
+	return content.replace(/[#%?]/g, char => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`);
+}
+
 const acquireVisitIndex = makeAcquireVisitIndex();
 
 /** @internal */
@@ -371,7 +376,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 					...Object.entries(importAttributes).map(
 						([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
 				] as Iterable<[ string, string ]>);
-				const backingModuleURL = `hot:module:${this.url}?${String(backingModuleParams)}`;
+				const backingModuleURL = `hot:module:${encodeLimited(this.url)}?${String(backingModuleParams)}`;
 				evictModule(backingModuleURL);
 			}
 		}

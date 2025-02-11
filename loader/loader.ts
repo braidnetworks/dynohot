@@ -109,6 +109,15 @@ function asString(sourceText: any) {
 	}
 }
 
+// nb: Copy/pasted into runtime
+function encodeLimited(content: string) {
+	return content.replace(/[#%?]/g, char => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`);
+}
+
+function decodeLimited(encoded: string) {
+	return encoded.replace(/%[0-9a-f]+/g, code => String.fromCharCode(parseInt(code.slice(1), 16)));
+}
+
 /** @internal */
 export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 	// Forward root module to "hot:main"
@@ -143,7 +152,7 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 			return {
 				...result,
 				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: {},
-				url: `hot:module:${result.url}?${String(params)}`,
+				url: `hot:module:${encodeLimited(result.url)}?${String(params)}`,
 			};
 		});
 
@@ -165,7 +174,7 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 			return {
 				...result,
 				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: {},
-				url: `hot:module:${result.url}?${String(params)}`,
+				url: `hot:module:${encodeLimited(result.url)}?${String(params)}`,
 			};
 		});
 
@@ -185,7 +194,7 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 		return {
 			shortCircuit: true,
 			format,
-			url: `hot:module:${resolution}?${String(params)}`,
+			url: `hot:module:${encodeLimited(resolution)}?${String(params)}`,
 		};
 	}
 	// Pass through requests for the runtime
@@ -242,8 +251,8 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 			}
 
 			case "module": return async function() {
-				const moduleURL = pathname.replace("module:", "");
-				assert.ok(moduleURL);
+				const moduleURL = decodeLimited(pathname.replace("module:", ""));
+				assert.notStrictEqual(moduleURL, "");
 				const importAttributes = extractImportAttributes(url.searchParams);
 				const hot = new LoaderHot(moduleURL, port);
 				const result = await nextLoad(moduleURL, {
