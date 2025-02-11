@@ -11,7 +11,8 @@ jobs:
       - uses: bahmutov/npm-install@v1
       - shell: bash
         run: npx tsc -b
-      - uses: wearerequired/lint-action@v2
+      # Forked: https://github.com/wearerequired/lint-action/issues/788
+      - uses: rkuykendall/lint-action@3402def6dea8dbcf0b8ec42431d9345ee3f69c4d
         with:
           eslint: true
           eslint_args: "--max-warnings=0 --report-unused-disable-directives"
