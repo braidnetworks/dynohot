@@ -22,7 +22,8 @@ interface ImportEntry {
 	bindings: BindingEntry[];
 }
 
-const deprecatedAssertSyntax = /^1[6-9]/.test(process.versions.node);
+// version < v22
+const deprecatedAssertSyntax = /^(?:16|17|18|19|20|21)/.test(process.versions.node);
 
 export function transformModuleSource(
 	filename: string,
@@ -41,7 +42,7 @@ export function transformModuleSource(
 				parserOpts: {
 					plugins: [
 						"explicitResourceManagement",
-						[ "importAttributes", { deprecatedAssertSyntax: true } ],
+						[ "importAttributes", { deprecatedAssertSyntax } ],
 					],
 				},
 			});
