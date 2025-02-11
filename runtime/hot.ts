@@ -2,7 +2,7 @@ import type { ReloadableModuleInstance } from "./instance.js";
 import type { ModuleController } from "./module.js";
 import * as assert from "node:assert/strict";
 import { EOL } from "node:os";
-import Fn from "dynohot/functional";
+import { Fn } from "@braidai/lang/functional";
 import { ReloadableModuleController } from "./controller.js";
 import { ModuleStatus } from "./module.js";
 import { makeRelative, plural } from "./utility.js";
@@ -76,19 +76,6 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 
 	#declined = false;
 	#invalidated = false;
-
-	constructor(
-		module: unknown,
-		instance: unknown,
-		usesDynamicImport: boolean,
-		data?: Data,
-	) {
-		this.#module = module as ReloadableModuleController;
-		this.#instance = instance as ReloadableModuleInstance;
-		this.#usesDynamicImport = usesDynamicImport;
-		this.data = data;
-		Object.freeze(this);
-	}
 
 	static {
 		didDynamicImport = (instance, controller) => {
@@ -226,6 +213,19 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 		};
 	}
 
+	constructor(
+		module: unknown,
+		instance: unknown,
+		usesDynamicImport: boolean,
+		data?: Data,
+	) {
+		this.#module = module as ReloadableModuleController;
+		this.#instance = instance as ReloadableModuleInstance;
+		this.#usesDynamicImport = usesDynamicImport;
+		this.data = data;
+		Object.freeze(this);
+	}
+
 	/**
 	 * Accept updates for this module. When any unaccepted dependencies are updated this module will
 	 * be reevaluated without notifying any dependents.
@@ -257,10 +257,16 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 			});
 		} else if (Array.isArray(arg1)) {
 			const localEntries: LocalModuleEntry[] = arg1.map(specifier => {
+				// https://github.com/microsoft/TypeScript/issues/60177
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 				const module = this.#instance.lookupSpecifier(specifier);
 				if (module == null) {
+					// https://github.com/microsoft/TypeScript/issues/60177
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 					return { found: false, module, specifier };
 				} else {
+					// https://github.com/microsoft/TypeScript/issues/60177
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 					return { found: true, module, specifier };
 				}
 			});
@@ -288,7 +294,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 	 * Mark this module as not-updatable. If this module needs to be updated then the update will
 	 * fail.
 	 */
-	decline() {
+	decline(): void {
 		this.#declined = true;
 	}
 
@@ -297,7 +303,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 	 * receives a parameter `data` which can be used to store arbitrary data. The same `data` object
 	 * will be passed to the next instance via `import.meta.hot.data`.
 	 */
-	dispose(onDispose: (data: Data) => Promise<void> | void) {
+	dispose(onDispose: (data: Data) => Promise<void> | void): void {
 		assert.ok(typeof onDispose === "function");
 		this.#destructors.push(data => onDispose(data));
 	}
@@ -306,7 +312,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 	 * Mark this module as invalidated. If an update is in progress then this will cancel a
 	 * self-accept. If an update is not in progress then one will be scheduled.
 	 */
-	invalidate() {
+	invalidate(): void {
 		this.#invalidated = true;
 		void this.#module.application.requestUpdate();
 	}
@@ -315,7 +321,7 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 	 * Similar to `dispose`, but this is invoked when the module is removed from the dependency
 	 * graph entirely.
 	 */
-	prune(onPrune: () => Promise<void> | void) {
+	prune(onPrune: () => Promise<void> | void): void {
 		this.#destructors.push((data, prune) => {
 			if (prune) {
 				return onPrune();

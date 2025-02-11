@@ -1,7 +1,7 @@
 {
 	"editor.rulers": [
 		// Comments wrap to 100
-		{ "column": 100, "color": "transparent" },
+		{ "column": 100, "color": "#0000" },
 		// Visual indicator at 120 columns
 		{ "column": 120 },
 	],
@@ -11,23 +11,27 @@
 		// This can change the semantic meaning of a condition without consulting the developer
 		// first.
 		"!@typescript-eslint/no-unnecessary-condition",
+		"!@typescript-eslint/no-unnecessary-type-assertion",
 		"!@typescript-eslint/prefer-readonly",
 		"!prefer-const",
 		"*",
 	],
-	"eslint.experimental.useFlatConfig": true,
-	"eslint.rules.customizations": [ {
-		"rule": "eol-last",
-		"severity": "off",
-	}, {
-		"rule": "no-trailing-spaces",
-		"severity": "off",
-	} ],
-	"eslint.useESLintClass": true,
+	"eslint.format.enable": false,
+	"eslint.rules.customizations": [
+		// Fixed by automatically by the editor on save and the yellow lines are blinding in the
+		// meantime.
+		{ "rule": "@stylistic/eol-last", "severity": "off" },
+		{ "rule": "@stylistic/no-tabs", "severity": "off" },
+		{ "rule": "@stylistic/no-trailing-spaces", "severity": "off" },
+	],
+	"eslint.validate": [
+		"javascript",
+		"typescript",
+	],
 	"files.exclude": {
 		"**/dist": true,
 		"**/node_modules": true,
-		"**/tsconfig.tsbuildinfo": true,
+		"package-lock.json": true,
 	},
 	"files.insertFinalNewline": true,
 	"files.trimTrailingWhitespace": true,

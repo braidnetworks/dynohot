@@ -1,17 +1,17 @@
+/* eslint-disable import/extensions -- Remove after eslint-plugin-import v2.32.0 */
 import type { Context, SourceTextModuleOptions } from "node:vm";
 import * as assert from "node:assert/strict";
 import { SourceTextModule, createContext } from "node:vm";
-import * as jest from "@jest/globals";
-import { transformModuleSource } from "../../loader/transform.js";
-import * as adapter from "../../runtime/adapter.js";
-import * as reloadable from "../../runtime/controller.js";
-import { ReloadableModuleController } from "../../runtime/controller.js";
+import { transformModuleSource } from "#dynohot/loader/transform";
+import * as adapter from "#dynohot/runtime/adapter";
+import * as reloadable from "#dynohot/runtime/controller";
+import { ReloadableModuleController } from "#dynohot/runtime/controller";
 
 let count = 0;
 const modules = new Map<string, TestModule>();
 
-// @ts-expect-error
-Symbol.dispose = Symbol.for('Symbol.dispose');
+// @ts-expect-error -- This was backported some time in nodejs v18.
+Symbol.dispose ??= Symbol.for("Symbol.dispose");
 
 interface Environment {
 	readonly context: Context;
@@ -44,10 +44,10 @@ export class TestModule {
 	private environment: Environment | undefined;
 	private vm: HotInstanceSourceModule | undefined;
 	private readonly url = `test:///module${++count}`;
+	private source;
 
-	constructor(
-		private source: () => string,
-	) {
+	constructor(source: () => string) {
+		this.source = source;
 		modules.set(this.url, this);
 	}
 
@@ -61,6 +61,64 @@ export class TestModule {
 		const controller = this.vm.namespace.default();
 		const instance = controller.select();
 		return instance.moduleNamespace()();
+	}
+
+	private static makeRuntime(environment: Environment) {
+		return new SourceTextModule(
+			`const [ assert, Adapter, Reloadable ] = await Promise.all([
+				import("node:assert/strict"),
+				import("hot:test/adapter"),
+				import("hot:test/reloadable"),
+			]);
+			export const acquire = Reloadable.makeAcquire(
+				(specifier, attributes) => import(specifier, attributes),
+				{ silent: true },
+				undefined);
+			export const adapter = Adapter.adapter;
+			globalThis.assert = assert;\n`, {
+				context: environment.context,
+				// @ts-expect-error -- Types incorrect, since `importModuleDynamically` can accept
+				// an exotic namespace object in the runtime
+				importModuleDynamically: TestModule.dynamicImport.bind(undefined, environment),
+			});
+	}
+
+	private static link(this: void, environment: Environment, specifier: string) {
+		switch (specifier) {
+			case "hot:runtime": return environment.runtime;
+			default:
+				if (specifier.startsWith("hot:module?")) {
+					const url = new URL(specifier);
+					const moduleURL = url.searchParams.get("specifier");
+					assert.ok(moduleURL !== null);
+					const module = modules.get(moduleURL);
+					assert.ok(module !== undefined);
+					return module.instantiate(environment);
+				} else {
+					throw new Error(`Unexpected specifier: ${specifier}`);
+				}
+		}
+	}
+
+	private static async dynamicImport(this: void, environment: Environment, specifier: string) {
+		switch (specifier) {
+			case "node:assert/strict": return assert;
+			case "hot:test/adapter": return adapter;
+			case "hot:test/reloadable": return reloadable;
+			default:
+				if (specifier.startsWith("hot:import?")) {
+					const url = new URL(specifier);
+					const moduleURL = url.searchParams.get("specifier");
+					assert.ok(moduleURL !== null);
+					const module = modules.get(moduleURL);
+					assert.ok(module !== undefined);
+					const vm = module.instantiate(environment);
+					await module.linkAndEvaluate();
+					return vm;
+				} else {
+					throw new Error(`Unexpected specifier: ${specifier}`);
+				}
+		}
 	}
 
 	async dispatch() {
@@ -135,61 +193,6 @@ export class TestModule {
 		if (this.vm.status === "unlinked") {
 			await this.vm.link(TestModule.link.bind(undefined, this.environment));
 			await this.vm.evaluate();
-		}
-	}
-
-	private static makeRuntime(environment: Environment) {
-		return new SourceTextModule(
-			`const [ Jest, Adapter, Reloadable ] = await Promise.all([
-				import("@jest/globals"),
-				import("hot:test/adapter"),
-				import("hot:test/reloadable"),
-			]);
-			export const acquire = Reloadable.makeAcquire((specifier, attributes) => import(specifier, attributes), { silent: true });
-			export const adapter = Adapter.adapter;
-			globalThis.expect = Jest.expect;\n`, {
-				context: environment.context,
-				// @ts-expect-error -- Types incorrect, since `importModuleDynamically` can accept
-				// an exotic namespace object in the runtime
-				importModuleDynamically: TestModule.dynamicImport.bind(undefined, environment),
-			});
-	}
-
-	private static link(this: void, environment: Environment, specifier: string) {
-		switch (specifier) {
-			case "hot:runtime": return environment.runtime;
-			default:
-				if (specifier.startsWith("hot:module?")) {
-					const url = new URL(specifier);
-					const moduleURL = url.searchParams.get("specifier");
-					assert.ok(moduleURL !== null);
-					const module = modules.get(moduleURL);
-					assert.ok(module !== undefined);
-					return module.instantiate(environment);
-				} else {
-					throw new Error(`Unexpected specifier: ${specifier}`);
-				}
-		}
-	}
-
-	private static async dynamicImport(this: void, environment: Environment, specifier: string) {
-		switch (specifier) {
-			case "hot:test/adapter": return adapter;
-			case "hot:test/reloadable": return reloadable;
-			case "@jest/globals": return jest;
-			default:
-				if (specifier.startsWith("hot:import?")) {
-					const url = new URL(specifier);
-					const moduleURL = url.searchParams.get("specifier");
-					assert.ok(moduleURL !== null);
-					const module = modules.get(moduleURL);
-					assert.ok(module !== undefined);
-					const vm = module.instantiate(environment);
-					await module.linkAndEvaluate();
-					return vm;
-				} else {
-					throw new Error(`Unexpected specifier: ${specifier}`);
-				}
 		}
 	}
 }

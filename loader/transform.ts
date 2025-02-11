@@ -2,8 +2,8 @@ import type { NodePath, Visitor } from "@babel/traverse";
 import type { BindingEntry } from "dynohot/runtime/binding";
 import * as assert from "node:assert/strict";
 import { parse, types as t } from "@babel/core";
+import { Fn } from "@braidai/lang/functional";
 import convertSourceMap from "convert-source-map";
-import Fn from "dynohot/functional";
 import { BindingType } from "dynohot/runtime/binding";
 import { generate, makeRootPath, traverse } from "./babel-shim.js";
 

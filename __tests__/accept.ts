@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
-import { expect, test } from "@jest/globals";
-import { UpdateStatus } from "../runtime/controller.js";
+import * as assert from "node:assert/strict";
+import { test } from "node:test";
+import { UpdateStatus } from "dynohot/runtime/controller";
 import { TestModule } from "./__fixtures__/module.js";
 
-test("accept handlers should run top down", async () => {
+await test("accept handlers should run top down", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${child};
 		let seen = false;
@@ -11,16 +12,16 @@ test("accept handlers should run top down", async () => {
 			seen = true;
 		});
 		import.meta.hot.accept(${child}, () => {
-			expect(seen).toBe(true);
+			assert.strictEqual(seen, true);
 		});`);
 	const child = new TestModule(() => "");
 	await main.dispatch();
 	child.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
+	assert.strictEqual(result?.type, UpdateStatus.success);
 });
 
-test("only run affected handlers", async () => {
+await test("only run affected handlers", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${left};
 		import {} from ${right};
@@ -35,12 +36,12 @@ test("only run affected handlers", async () => {
 	await main.dispatch();
 	left.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
-	expect(main.global.leftSeen).toBe(true);
-	expect(main.global.rightSeen).toBe(undefined);
+	assert.strictEqual(result?.type, UpdateStatus.success);
+	assert.strictEqual(main.global.leftSeen, true);
+	assert.strictEqual(main.global.rightSeen, undefined);
 });
 
-test("should be able to accept a cycle root", async () => {
+await test("should be able to accept a cycle root", async () => {
 	const main = new TestModule(() =>
 		`import {} from ${left};
 		import.meta.hot.accept(${left});`);
@@ -51,10 +52,10 @@ test("should be able to accept a cycle root", async () => {
 	await main.dispatch();
 	right.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
+	assert.strictEqual(result?.type, UpdateStatus.success);
 });
 
-test("catch error from accept", async () => {
+await test("catch error from accept", async () => {
 	const main = new TestModule(() =>
 		`import ${child};
 		import.meta.hot.accept(${child}, () => {
@@ -70,12 +71,12 @@ test("catch error from accept", async () => {
 	await main.dispatch();
 	child2.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
-	expect(main.global.seen1).toBe(true);
-	expect(main.global.seen2).toBe(true);
+	assert.strictEqual(result?.type, UpdateStatus.success);
+	assert.strictEqual(main.global.seen1, true);
+	assert.strictEqual(main.global.seen2, true);
 });
 
-test("catch error from self-accept", async () => {
+await test("catch error from self-accept", async () => {
 	const main = new TestModule(() =>
 		`import ${child};
 		import.meta.hot.accept(${child});`);
@@ -86,5 +87,5 @@ test("catch error from self-accept", async () => {
 	await main.dispatch();
 	child.update(() => "");
 	const result = await main.releaseUpdate();
-	expect(result?.type).toBe(UpdateStatus.success);
+	assert.strictEqual(result?.type, UpdateStatus.success);
 });

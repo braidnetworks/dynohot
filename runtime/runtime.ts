@@ -1,13 +1,21 @@
+import type { ModuleController } from "./module.js";
 import { AdapterModuleController } from "./adapter.js";
 import { makeAcquire } from "./controller.js";
+import { port2 } from "./port.js";
 
 const self = new URL(import.meta.url);
 const params = self.searchParams;
 
 /** @internal */
+export interface ModuleAdapter {
+	readonly default: () => ModuleController;
+}
+
+/** @internal */
 export const acquire = makeAcquire(
 	(specifier, attributes) => import(specifier, attributes),
 	Object.fromEntries(params),
+	port2,
 );
 
 /** @internal */
