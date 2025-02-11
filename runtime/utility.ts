@@ -73,12 +73,14 @@ export function debounceTimer<Result>(ms: number, fn: () => MaybePromise<Result>
  */
 export const evictModule = function() {
 	interface SecretLoader {
-		esmLoader: { loadCache?: Map<string, unknown> };
+		getOrInitializeCascadedLoader: () => {
+			loadCache?: Map<string, unknown>;
+		};
 	}
 	try {
 		const require = createRequire(import.meta.url);
-		const loader = require("internal/process/esm_loader") as unknown as SecretLoader;
-		const { loadCache } = loader.esmLoader;
+		const loader = require("internal/modules/esm/loader") as unknown as SecretLoader;
+		const { loadCache } = loader.getOrInitializeCascadedLoader();
 		if (loadCache) {
 			return (url: string) => {
 				if (loadCache.has(url)) {
