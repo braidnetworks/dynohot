@@ -109,6 +109,15 @@ function asString(sourceText: any) {
 	}
 }
 
+// nb: Copy/pasted into runtime
+function encodeLimited(content: string) {
+	return content.replace(/[#%?]/g, char => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`);
+}
+
+function decodeLimited(encoded: string) {
+	return encoded.replace(/%[0-9a-f]+/g, code => String.fromCharCode(parseInt(code.slice(1), 16)));
+}
+
 /** @internal */
 export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 	// Forward root module to "hot:main"
@@ -120,12 +129,15 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 			};
 		});
 	}
-	// [static imports] Convert "hot:module?specifier=..." to "hot:module?url=..."
-	if (specifier.startsWith("hot:module?")) {
-		assert.ok(context.parentURL.startsWith("hot:main?") || context.parentURL.startsWith("hot:module?"));
+	// [static imports] Convert "hot:static?specifier=..." to "hot:module:file://..."
+	if (specifier.startsWith("hot:static?")) {
+		assert.ok(context.parentURL.startsWith("hot:main?") || context.parentURL.startsWith("hot:module:"));
 		const parentURL = new URL(context.parentURL);
-		const parentModuleURL = parentURL.searchParams.get("url");
-		assert.ok(parentModuleURL !== null);
+		const parentModuleURL =
+			context.parentURL.startsWith("hot:main?")
+				? parentURL.searchParams.get("url") ?? ""
+				: parentURL.pathname.replace("module:", "");
+		assert.ok(parentModuleURL !== "");
 		const resolutionURL = new URL(specifier);
 		const resolutionSpecifier = resolutionURL.searchParams.get("specifier");
 		assert.ok(resolutionSpecifier !== null);
@@ -136,19 +148,16 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 				parentURL: parentModuleURL,
 				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: importAttributes,
 			});
-			const params = new URLSearchParams([
-				[ "url", result.url ],
-				...Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"),
-			]);
+			const params = new URLSearchParams(Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"));
 			return {
 				...result,
 				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: {},
-				url: `hot:module?${String(params)}`,
+				url: `hot:module:${encodeLimited(result.url)}?${String(params)}`,
 			};
 		});
 
-	// [dynamic import] Convert "hot:module?specifier=..." to "hot:module?url=..."
-	} else if (specifier.startsWith("hot:import?")) {
+	// [dynamic import] Convert "hot:dynamic?specifier=..." to "hot:module:file://..."
+	} else if (specifier.startsWith("hot:dynamic?")) {
 		const resolutionURL = new URL(specifier);
 		const resolutionSpecifier = resolutionURL.searchParams.get("specifier");
 		assert.ok(resolutionSpecifier !== null);
@@ -161,18 +170,15 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 				parentURL: parentModuleURL,
 				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: importAttributes,
 			});
-			const params = new URLSearchParams([
-				[ "url", result.url ],
-				...Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"),
-			]);
+			const params = new URLSearchParams(Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"));
 			return {
 				...result,
 				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: {},
-				url: `hot:module?${String(params)}`,
+				url: `hot:module:${encodeLimited(result.url)}?${String(params)}`,
 			};
 		});
 
-	// [file watcher] Convert "hot:reload?url=..." to "hot:module?url=..."
+	// [file watcher] Convert "hot:reload?url=..." to "hot:module:file://..."
 	} else if (specifier.startsWith("hot:reload?")) {
 		const resolutionURL = new URL(specifier);
 		const resolution = resolutionURL.searchParams.get("url");
@@ -182,14 +188,13 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 		const format = resolutionURL.searchParams.get("format") as ModuleFormat | null;
 		assert.ok(format !== null);
 		const params = new URLSearchParams([
-			[ "url", resolution ],
 			[ "version", version ],
 			...Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"),
 		]);
 		return {
 			shortCircuit: true,
 			format,
-			url: `hot:module?${String(params)}`,
+			url: `hot:module:${encodeLimited(resolution)}?${String(params)}`,
 		};
 	}
 	// Pass through requests for the runtime
@@ -202,16 +207,16 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 	}
 	// This import graph has bailed from the "hot:" scheme and is just forwarded to the host.
 	const parentURL = function() {
-		if (context.parentURL.startsWith("hot:")) {
+		if (context.parentURL.startsWith("hot:module:")) {
 			const parentURL = new URL(context.parentURL);
-			return parentURL.searchParams.get("url");
+			return parentURL.pathname.replace("module:", "");
 		} else {
 			return context.parentURL;
 		}
 	}();
 	return nextResolve(specifier, {
 		...context,
-		...parentURL !== null && { parentURL },
+		parentURL,
 	});
 };
 
@@ -219,7 +224,8 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 export const load: LoadHook = (urlString, context, nextLoad) => {
 	if (urlString.startsWith("hot:")) {
 		const url = new URL(urlString);
-		switch (url.pathname) {
+		const pathname = url.pathname;
+		switch (pathname.split(":", 1)[0]) {
 			case "adapter": {
 				const importAttributes = extractImportAttributes(url.searchParams);
 				const moduleURL = url.searchParams.get("url");
@@ -234,7 +240,7 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 			case "main": {
 				const moduleURL = url.searchParams.get("url");
 				assert.ok(moduleURL !== null);
-				const controllerSpecifier = `hot:module?specifier=${encodeURIComponent(moduleURL)}`;
+				const controllerSpecifier = `hot:static?specifier=${encodeURIComponent(moduleURL)}`;
 				return {
 					shortCircuit: true,
 					format: "module",
@@ -245,8 +251,8 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 			}
 
 			case "module": return async function() {
-				const moduleURL = url.searchParams.get("url");
-				assert.ok(moduleURL !== null);
+				const moduleURL = decodeLimited(pathname.replace("module:", ""));
+				assert.notStrictEqual(moduleURL, "");
 				const importAttributes = extractImportAttributes(url.searchParams);
 				const hot = new LoaderHot(moduleURL, port);
 				const result = await nextLoad(moduleURL, {

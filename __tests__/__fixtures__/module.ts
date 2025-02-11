@@ -87,7 +87,7 @@ export class TestModule {
 		switch (specifier) {
 			case "hot:runtime": return environment.runtime;
 			default:
-				if (specifier.startsWith("hot:module?")) {
+				if (specifier.startsWith("hot:static?")) {
 					const url = new URL(specifier);
 					const moduleURL = url.searchParams.get("specifier");
 					assert.ok(moduleURL !== null);
@@ -106,7 +106,7 @@ export class TestModule {
 			case "hot:test/adapter": return adapter;
 			case "hot:test/reloadable": return reloadable;
 			default:
-				if (specifier.startsWith("hot:import?")) {
+				if (specifier.startsWith("hot:dynamic?")) {
 					const url = new URL(specifier);
 					const moduleURL = url.searchParams.get("specifier");
 					assert.ok(moduleURL !== null);

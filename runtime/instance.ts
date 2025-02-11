@@ -508,7 +508,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 				Object.entries(importAttributes ?? {}),
 				([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
 		] as [ string, string ][]);
-		const moduleNamespace = await this.controller.application.dynamicImport(`hot:import?${String(specifierParams)}`, importAttributes);
+		const moduleNamespace = await this.controller.application.dynamicImport(`hot:dynamic?${String(specifierParams)}`, importAttributes);
 		const moduleAdapter = moduleNamespace satisfies ModuleNamespace as unknown as ModuleAdapter;
 		const controller: ModuleController = moduleAdapter.default();
 		didDynamicImport(this, controller);
