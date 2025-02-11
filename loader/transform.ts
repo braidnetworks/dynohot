@@ -22,8 +22,8 @@ interface ImportEntry {
 	bindings: BindingEntry[];
 }
 
-// 16.14.0 >= version < 18.20.0
-const deprecatedAssertSyntax = /^(?:16|17|18\.1?[0-9]\.)/.test(process.versions.node);
+// version < v22
+const deprecatedAssertSyntax = /^(?:16|17|18|19|20|21)/.test(process.versions.node);
 
 export function transformModuleSource(
 	filename: string,
