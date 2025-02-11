@@ -1,6 +1,7 @@
 import type { ModuleDeclaration } from "./declaration.js";
 import type { Data } from "./hot.js";
-import type { AbstractModuleInstance, ModuleController, ModuleExports, Resolution, SelectModuleInstance } from "./module.js";
+import type { AbstractModuleInstance, ModuleController, ModuleExports, ModuleNamespace, Resolution, SelectModuleInstance } from "./module.js";
+import type { ModuleAdapter } from "./runtime.js";
 import type { WithResolvers } from "./utility.js";
 import * as assert from "node:assert/strict";
 import { mappedPrimitiveComparator } from "@braidai/lang/comparator";
@@ -77,6 +78,7 @@ interface ModuleContinuationAsync {
 
 /** @internal */
 export class ReloadableModuleInstance implements AbstractModuleInstance {
+	readonly declaration: ModuleDeclaration;
 	readonly reloadable = true;
 	state: ModuleState = { status: ModuleStatus.new };
 	dynamicImports: {
@@ -84,12 +86,16 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		readonly specifier: string;
 	}[] = [];
 
+	private readonly controller;
 	private namespace: (() => Record<string, unknown>) | undefined;
 
 	constructor(
-		private readonly controller: ReloadableModuleController,
-		public readonly declaration: ModuleDeclaration,
-	) {}
+		controller: ReloadableModuleController,
+		declaration: ModuleDeclaration,
+	) {
+		this.controller = controller;
+		this.declaration = declaration;
+	}
 
 	clone() {
 		return new ReloadableModuleInstance(this.controller, this.declaration);
@@ -327,38 +333,13 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		yield* Fn.map(this.dynamicImports, instance => instance.controller);
 	}
 
-	private async dynamicImport(specifier: string, importAttributes?: Record<string, string>) {
-		assert.ok(
-			this.state.status === ModuleStatus.linked ||
-			this.state.status === ModuleStatus.evaluating ||
-			this.state.status === ModuleStatus.evaluatingAsync ||
-			this.state.status === ModuleStatus.evaluated);
-		const specifierParams = new URLSearchParams([
-			[ "parent", this.controller.url ],
-			[ "specifier", specifier ],
-			...Fn.map(
-				Object.entries(importAttributes ?? {}),
-				([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
-		] as [ string, string ][]);
-		const { default: acquire } = await this.controller.application.dynamicImport(`hot:import?${String(specifierParams)}`, importAttributes);
-		const controller: ModuleController = (acquire as any)();
-		didDynamicImport(this, controller);
-		if (controller.reloadable) {
-			this.dynamicImports.push({ controller, specifier });
-			await controller.dispatch();
-			return controller.select().moduleNamespace()();
-		} else {
-			return controller.moduleNamespace()();
-		}
-	}
-
 	// 10.4.6.12 ModuleNamespaceCreate ( module, exports )
 	// 16.2.1.6.2 GetExportedNames ( [ exportStarSet ] )
 	// 16.2.1.10 GetModuleNamespace ( module )
 	moduleNamespace(select?: SelectModuleInstance) {
 		if (!this.namespace) {
 			assert.ok(this.state.status !== ModuleStatus.new);
-			const namespace = Object.create(null);
+			const namespace = Object.create(null) as Record<string, unknown>;
 			this.namespace ??= () => namespace;
 			const ambiguousNames = new Set<string>();
 			const resolutions = new Map<string, () => unknown>();
@@ -417,7 +398,7 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 	resolveExport(
 		exportName: string,
 		select: SelectModuleInstance | undefined,
-		resolveSet: Map<ReloadableModuleInstance, Set<string>> | undefined = new Map,
+		resolveSet: Map<ReloadableModuleInstance, Set<string>> | undefined = new Map(),
 	): Resolution {
 		// 1. Assert: module.[[Status]] is not new.
 		assert.ok(this.state.status !== ModuleStatus.new);
@@ -512,5 +493,31 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		}
 		// 10. Return starResolution.
 		return starResolution;
+	}
+
+	private async dynamicImport(specifier: string, importAttributes?: Record<string, string>) {
+		assert.ok(
+			this.state.status === ModuleStatus.linked ||
+			this.state.status === ModuleStatus.evaluating ||
+			this.state.status === ModuleStatus.evaluatingAsync ||
+			this.state.status === ModuleStatus.evaluated);
+		const specifierParams = new URLSearchParams([
+			[ "parent", this.controller.url ],
+			[ "specifier", specifier ],
+			...Fn.map(
+				Object.entries(importAttributes ?? {}),
+				([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
+		] as [ string, string ][]);
+		const moduleNamespace = await this.controller.application.dynamicImport(`hot:import?${String(specifierParams)}`, importAttributes);
+		const moduleAdapter = moduleNamespace satisfies ModuleNamespace as unknown as ModuleAdapter;
+		const controller: ModuleController = moduleAdapter.default();
+		didDynamicImport(this, controller);
+		if (controller.reloadable) {
+			this.dynamicImports.push({ controller, specifier });
+			await controller.dispatch();
+			return controller.select().moduleNamespace()();
+		} else {
+			return controller.moduleNamespace()();
+		}
 	}
 }

@@ -70,7 +70,7 @@ export default function module() {
 module().load({ async: false, execute }, null, false, "json", ${JSON.stringify(importAttributes)}, []);\n`;
 
 const makeReloadableModule = async (url: string, source: string, importAttributes: ImportAttributes) => {
-	const sourceMap = await async function() {
+	const sourceMap = await async function(): Promise<unknown> {
 		try {
 			const map = convertSourceMap.fromComment(source);
 			return map.toObject();
@@ -133,7 +133,7 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
 				...context,
 				parentURL: parentModuleURL,
-				// @ts-expect-error
+				// @ts-expect-error -- remove after nodejs v18(?) is not supported
 				importAssertions,
 			});
 			const params = new URLSearchParams([
@@ -159,7 +159,7 @@ export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
 				...context,
 				parentURL: parentModuleURL,
-				// @ts-expect-error
+				// @ts-expect-error -- remove after nodejs v18(?) is not supported
 				importAssertions,
 			});
 			const params = new URLSearchParams([
@@ -224,7 +224,7 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 			case "adapter": {
 				const importAssertions = extractImportAttributes(url.searchParams);
 				const moduleURL = url.searchParams.get("url");
-				assert.ok(moduleURL);
+				assert.ok(moduleURL !== null);
 				return {
 					shortCircuit: true,
 					format: "module",
@@ -234,7 +234,7 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 
 			case "main": {
 				const moduleURL = url.searchParams.get("url");
-				assert.ok(moduleURL);
+				assert.ok(moduleURL !== null);
 				const controllerSpecifier = `hot:module?specifier=${encodeURIComponent(moduleURL)}`;
 				return {
 					shortCircuit: true,
@@ -247,13 +247,13 @@ export const load: LoadHook = (urlString, context, nextLoad) => {
 
 			case "module": return async function() {
 				const moduleURL = url.searchParams.get("url");
-				assert.ok(moduleURL);
+				assert.ok(moduleURL !== null);
 				const importAttributes = extractImportAttributes(url.searchParams);
 				const hot = new LoaderHot(moduleURL, port);
 				const result = await nextLoad(moduleURL, {
 					...context,
 					// TODO [marcel 2024-04-27]: remove after nodejs v18(?) is not supported
-					// @ts-expect-error
+					// @ts-expect-error -- remove after nodejs v18(?) is not supported
 					importAssertions: importAttributes,
 					importAttributes,
 					hot,

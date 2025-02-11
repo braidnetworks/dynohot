@@ -77,19 +77,6 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 	#declined = false;
 	#invalidated = false;
 
-	constructor(
-		module: unknown,
-		instance: unknown,
-		usesDynamicImport: boolean,
-		data?: Data,
-	) {
-		this.#module = module as ReloadableModuleController;
-		this.#instance = instance as ReloadableModuleInstance;
-		this.#usesDynamicImport = usesDynamicImport;
-		this.data = data;
-		Object.freeze(this);
-	}
-
 	static {
 		didDynamicImport = (instance, controller) => {
 			const hot = selectHot(instance);
@@ -226,6 +213,19 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 		};
 	}
 
+	constructor(
+		module: unknown,
+		instance: unknown,
+		usesDynamicImport: boolean,
+		data?: Data,
+	) {
+		this.#module = module as ReloadableModuleController;
+		this.#instance = instance as ReloadableModuleInstance;
+		this.#usesDynamicImport = usesDynamicImport;
+		this.data = data;
+		Object.freeze(this);
+	}
+
 	/**
 	 * Accept updates for this module. When any unaccepted dependencies are updated this module will
 	 * be reevaluated without notifying any dependents.
@@ -257,10 +257,16 @@ export class Hot<Data extends Record<keyof any, unknown> = Record<keyof any, unk
 			});
 		} else if (Array.isArray(arg1)) {
 			const localEntries: LocalModuleEntry[] = arg1.map(specifier => {
+				// https://github.com/microsoft/TypeScript/issues/60177
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 				const module = this.#instance.lookupSpecifier(specifier);
 				if (module == null) {
+					// https://github.com/microsoft/TypeScript/issues/60177
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 					return { found: false, module, specifier };
 				} else {
+					// https://github.com/microsoft/TypeScript/issues/60177
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 					return { found: true, module, specifier };
 				}
 			});

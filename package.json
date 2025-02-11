@@ -34,15 +34,15 @@
 		"@babel/plugin-proposal-explicit-resource-management": "^7.25.9",
 		"@babel/preset-env": "^7.24.7",
 		"@babel/preset-typescript": "^7.24.7",
-		"@braidai/eslintrc": "^1.0.0",
+		"@braidai/eslintrc": "^1.1.1",
 		"@types/babel__core": "^7.20.5",
 		"@types/babel__generator": "^7.6.8",
 		"@types/babel__traverse": "^7.20.6",
 		"@types/convert-source-map": "^2.0.2",
 		"@types/node": "^22.9.3",
 		"babel-plugin-transform-import-meta": "^2.2.1",
-		"eslint": "^8.52.0",
-		"typescript": "^5.5.2"
+		"eslint": "^9.20.0",
+		"typescript": "^5.7.3"
 	},
 	"repository": {
 		"type": "git",

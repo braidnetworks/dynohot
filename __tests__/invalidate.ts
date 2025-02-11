@@ -9,6 +9,7 @@ await test("invalidate should work", async () => {
 		`import.meta.hot.accept();
 		globalThis.invalidate = () => import.meta.hot.invalidate();`);
 	await main.dispatch();
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-call
 	main.global.invalidate();
 	const result = await main.releaseUpdate();
 	assert.strictEqual(result?.type, UpdateStatus.success);

@@ -18,7 +18,7 @@ import { FileWatcher } from "./watcher.js";
 
 /** @internal */
 export function makeAcquire(dynamicImport: DynamicImport, params: Record<string, unknown>, port: MessagePort | undefined) {
-	const emitter = new EventEmitter;
+	const emitter = new EventEmitter();
 	const useLogs = params.silent === undefined;
 	const application: HotApplication = {
 		dynamicImport,
@@ -58,7 +58,7 @@ export interface HotApplication {
 	emitter: EventEmitter;
 	fileWatcher: FileWatcher;
 	loaderPort: MessagePort | undefined;
-	log: (message: string, ...params: any[]) => void;
+	log: (message: string, ...params: unknown[]) => void;
 	requestUpdate: () => Promise<void>;
 	requestUpdateResult: () => Promise<UpdateResult>;
 }
@@ -215,7 +215,9 @@ const acquireVisitIndex = makeAcquireVisitIndex();
 
 /** @internal */
 export class ReloadableModuleController implements AbstractModuleController {
+	readonly application;
 	readonly reloadable = true;
+	readonly url;
 
 	/** The currently "active" module instance */
 	private current: ReloadableModuleInstance | undefined;
@@ -233,9 +235,12 @@ export class ReloadableModuleController implements AbstractModuleController {
 	private version = 0;
 
 	constructor(
-		public readonly application: HotApplication,
-		public readonly url: string,
+		application: HotApplication,
+		url: string,
 	) {
+		this.application = application;
+		this.url = url;
+
 		const reload = () => void (async () => {
 			const instance = this.staging ?? this.current;
 			assert.ok(instance !== undefined);
@@ -264,6 +269,10 @@ export class ReloadableModuleController implements AbstractModuleController {
 				reload();
 			}
 		});
+	}
+
+	private static selectCurrent(this: void, controller: ReloadableModuleController) {
+		return controller.current;
 	}
 
 	async main(this: ReloadableModuleController) {
@@ -823,9 +832,5 @@ export class ReloadableModuleController implements AbstractModuleController {
 			type: UpdateStatus.success,
 			stats,
 		};
-	}
-
-	private static selectCurrent(this: void, controller: ReloadableModuleController) {
-		return controller.current;
 	}
 }
