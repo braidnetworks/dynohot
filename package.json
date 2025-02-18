@@ -25,7 +25,8 @@
 		"@babel/generator": "^7.24.7",
 		"@babel/traverse": "^7.24.7",
 		"@braidai/lang": "^1.0.0",
-		"convert-source-map": "^2.0.0"
+		"convert-source-map": "^2.0.0",
+		"tslib": "^2.8.1"
 	},
 	"devDependencies": {
 		"@babel/plugin-proposal-explicit-resource-management": "^7.25.9",
