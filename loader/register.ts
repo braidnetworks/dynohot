@@ -2,8 +2,6 @@ import type { LoaderParameters } from "./loader.js";
 import { register as registerLoader } from "node:module";
 import * as port from "#port";
 
-export type { Hot } from "dynohot/runtime/hot";
-
 export interface Options {
 	ignore?: RegExp;
 	silent?: boolean;

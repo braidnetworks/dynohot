@@ -10,8 +10,6 @@ import { maybeThen } from "dynohot/runtime/utility";
 import { LoaderHot } from "./loader-hot.js";
 import { transformModuleSource } from "./transform.js";
 
-export type { Hot } from "dynohot/runtime/hot";
-
 type ImportAttributes = Record<string, string>;
 
 /** @internal */

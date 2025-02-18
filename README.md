@@ -188,14 +188,14 @@ module created [`@loaderkit/ts`](https://github.com/braidnetworks/loaderkit/tree
 which handles this and works well with dynohot.
 
 ```
-node --import @loaderkit/ts/register --import dynohot ./main.ts
+node --import @loaderkit/ts --import dynohot ./main.ts
 ```
 
-You can add the following triple-slash directive to a `*.d.ts` file in your project and
-`import.meta.hot` will be typed correctly.
+You can add the following import to your main program entrypoint and `import.meta.hot` will be typed
+correctly.
 
 ```ts
-/// <reference types="dynohot/import-meta" />
+import type {} from "dynohot";
 ```
 
 

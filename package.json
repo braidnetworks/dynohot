@@ -6,9 +6,6 @@
 		".": "./dist/loader/dispatch.js",
 		"./loader": "./dist/loader/loader.js",
 		"./register": "./dist/loader/register.js",
-		"./import-meta": {
-			"types": "./import-meta.d.ts"
-		},
 		"./*": {
 			"import": "./dist/*.js",
 			"types": "./dist/*.d.ts"
