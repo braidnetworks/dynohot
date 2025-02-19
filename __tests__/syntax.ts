@@ -1,4 +1,3 @@
-/* eslint-disable import/extensions -- Remove after eslint-plugin-import v2.32.0 */
 import { test } from "node:test";
 import { SourceTextModule } from "node:vm";
 import { transformModuleSource } from "#dynohot/loader/transform";

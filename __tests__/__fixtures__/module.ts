@@ -1,4 +1,3 @@
-/* eslint-disable import/extensions -- Remove after eslint-plugin-import v2.32.0 */
 import type { Context, SourceTextModuleOptions } from "node:vm";
 import * as assert from "node:assert/strict";
 import { SourceTextModule, createContext } from "node:vm";
