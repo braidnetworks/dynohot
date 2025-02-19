@@ -1,4 +1,4 @@
-name: Build & lint
+name: Build
 on: [ push ]
 
 permissions:
@@ -7,11 +7,14 @@ permissions:
 
 jobs:
   build:
-    name: Build & lint
+    name: Build
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: bahmutov/npm-install@v1
       - shell: bash
         run: npx tsc -b
@@ -20,3 +23,4 @@ jobs:
         with:
           eslint: true
           eslint_args: "--max-warnings=0 --report-unused-disable-directives"
+      - run: npm test
