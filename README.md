@@ -1,5 +1,7 @@
 [![npm version](https://badgen.now.sh/npm/v/dynohot)](https://www.npmjs.com/package/dynohot)
 [![isc license](https://badgen.now.sh/npm/license/dynohot)](https://github.com/braidnetworks/dynohot/blob/main/LICENSE)
+[![github action](https://github.com/braidnetworks/dynohot/actions/workflows/build.yaml/badge.svg)](https://github.com/braidnetworks/dynohot/actions/workflows/build.yaml)
+[![npm downloads](https://badgen.now.sh/npm/dm/dynohot)](https://www.npmjs.com/package/dynohot)
 
 🔥 dynohot - Hot module reloading for nodejs
 ============================================
