@@ -43,12 +43,3 @@ export class LoaderHot {
 		this.#watch.push(url.href);
 	}
 }
-
-declare module "module" {
-	interface LoadHookContext {
-		/**
-		 * `dynohot` loader-hot instance.
-		 */
-		hot?: LoaderHot;
-	}
-}
