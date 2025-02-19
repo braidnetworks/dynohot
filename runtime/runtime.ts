@@ -13,7 +13,7 @@ export interface ModuleAdapter {
 
 /** @internal */
 export const acquire = makeAcquire(
-	(specifier, attributes) => import(specifier, attributes),
+	(specifier, attributes) => import(specifier, { with: attributes }),
 	Object.fromEntries(params),
 	port2,
 );

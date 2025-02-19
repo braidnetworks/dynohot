@@ -4,7 +4,7 @@ import { SourceTextModule } from "node:vm";
 import { transformModuleSource } from "#dynohot/loader/transform";
 
 function transform(source: string) {
-	return transformModuleSource("test.js", {}, source, null);
+	return transformModuleSource("test.js", null, {}, source, null);
 }
 
 function parses(source: string) {

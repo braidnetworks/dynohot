@@ -1,16 +1,38 @@
-import type { InitializeHook, LoadHook, ModuleFormat, ResolveFnOutput, ResolveHook } from "node:module";
+import type { ModuleOrigin } from "./specifier.js";
+import type { ImportAttributes, InitializeHook, LoadHook, ModuleFormat, ResolveHook } from "node:module";
 import type { MessagePort } from "node:worker_threads";
 import * as assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import * as fs from "node:fs/promises";
-import { mappedPrimitiveComparator } from "@braidai/lang/comparator";
 import { Fn } from "@braidai/lang/functional";
 import convertSourceMap from "convert-source-map";
-import { maybeThen } from "dynohot/runtime/utility";
 import { LoaderHot } from "./loader-hot.js";
+import { extractModuleOrigin, makeModuleOrigin } from "./specifier.js";
 import { transformModuleSource } from "./transform.js";
 
-type ImportAttributes = Record<string, string>;
+/**
+ * This is the value of the `hot` attribute attached to `import` requests. Note that this payload
+ * only makes it through to the resolver, where it is processed and discarded. The `hot` attribute
+ * received in the loader is something different.
+ *
+ * This type is declared and exported since the controller runtime needs to make payloads of this
+ * format.
+ * @internal
+ */
+export type HotResolverPayload =
+	HotResolveExpressionDirective |
+	HotResolveReloadDirective;
+
+interface HotResolveExpressionDirective {
+	hot: "expression";
+	parentURL: string;
+}
+
+interface HotResolveReloadDirective {
+	hot: "reload";
+	format: ModuleFormat;
+	version: number;
+}
 
 /** @internal */
 export interface LoaderParameters {
@@ -33,29 +55,18 @@ export const initialize: InitializeHook<LoaderParameters> = options => {
 	}))}`;
 };
 
-function extractImportAttributes(params: URLSearchParams): ImportAttributes {
-	const entries = Array.from(Fn.transform(
-		Fn.filter(params, entry => entry[0] === "with"),
-		entry => new URLSearchParams(entry[1])));
-	entries.sort(mappedPrimitiveComparator(entry => entry[0]));
-	return Object.fromEntries(entries);
-}
-
-// 16.14.0 >= version < 18.20.0
-const deprecatedAssertSyntax = /^(?:16|17|18\.1?[0-9]\.)/.test(process.versions.node);
-
-const makeAdapterModule = (url: string, importAttributes: ImportAttributes) => {
-	const encodedURL = JSON.stringify(url);
+const makeAdapterModule = (origin: ModuleOrigin, importAttributes: ImportAttributes) => {
+	const encodedURL = JSON.stringify(origin.moduleURL);
 	return (
 	// eslint-disable-next-line @stylistic/indent
-`import * as namespace from ${encodedURL} ${deprecatedAssertSyntax ? "assert" : "with"} ${JSON.stringify(importAttributes)};
+`import * as namespace from ${encodedURL} with ${JSON.stringify(importAttributes)};
 import { adapter } from "hot:runtime";
 const module = adapter(${encodedURL}, namespace);
 export default function() { return module; };\n`
 	);
 };
 
-const makeJsonModule = (url: string, json: string, importAttributes: ImportAttributes) =>
+const makeJsonModule = (origin: ModuleOrigin, json: string, importAttributes: ImportAttributes) =>
 // eslint-disable-next-line @stylistic/indent
 `import { acquire } from "hot:runtime";
 function* execute() {
@@ -64,11 +75,11 @@ function* execute() {
 	const json = JSON.parse(${JSON.stringify(json)});
 }
 export default function module() {
-	return acquire(${JSON.stringify(url)}, execute);
+	return acquire(${JSON.stringify(origin.moduleURL)});
 }
-module().load({ async: false, execute }, null, false, "json", ${JSON.stringify(importAttributes)}, []);\n`;
+module().load(${JSON.stringify(origin.backingModuleURL)}, { async: false, execute }, null, false, "json", ${JSON.stringify(importAttributes)}, []);\n`;
 
-const makeReloadableModule = async (url: string, source: string, importAttributes: ImportAttributes) => {
+const makeReloadableModule = async (origin: ModuleOrigin, watch: readonly string[], source: string, importAttributes: ImportAttributes) => {
 	const sourceMap = await async function(): Promise<unknown> {
 		try {
 			const map = convertSourceMap.fromComment(source);
@@ -77,7 +88,7 @@ const makeReloadableModule = async (url: string, source: string, importAttribute
 		try {
 			const map = await convertSourceMap.fromMapFileSource(
 				source,
-				(fileName: string) => fs.readFile(new URL(fileName, url), "utf8"));
+				(fileName: string) => fs.readFile(new URL(fileName, origin.moduleURL), "utf8"));
 			return map?.toObject();
 		} catch {}
 	}();
@@ -89,9 +100,9 @@ const makeReloadableModule = async (url: string, source: string, importAttribute
 	// source as a post-transformation process.
 	return (
 	// eslint-disable-next-line @stylistic/indent
-`${transformModuleSource(url, importAttributes, source, sourceMap)}
+`${transformModuleSource(origin.moduleURL, origin.backingModuleURL, importAttributes, source, sourceMap)}
 import { acquire } from "hot:runtime";
-export default function module() { return acquire(${JSON.stringify(url)}); }\n`
+export default function module() { return acquire(${JSON.stringify(origin.moduleURL)}, ${JSON.stringify(watch)}); }\n`
 	);
 };
 
@@ -107,182 +118,167 @@ function asString(sourceText: any) {
 	}
 }
 
-// nb: Copy/pasted into runtime
-function encodeLimited(content: string) {
-	return content.replace(/[#%?]/g, char => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`);
-}
-
-function decodeLimited(encoded: string) {
-	return encoded.replace(/%[0-9a-f]+/g, code => String.fromCharCode(parseInt(code.slice(1), 16)));
+function extractResolverImportAttributes(importAttributes: ImportAttributes): ImportAttributes {
+	return Fn.pipe(
+		Object.entries(importAttributes),
+		$$ => Fn.reject($$, ([ key ]) => key === "hot"),
+		$$ => Object.fromEntries($$));
 }
 
 /** @internal */
 export const resolve: ResolveHook = (specifier, context, nextResolve) => {
 	// Forward root module to "hot:main"
 	if (context.parentURL === undefined) {
-		return maybeThen(function*() {
-			const result: ResolveFnOutput = yield nextResolve(specifier, context);
-			return {
-				url: `hot:main?url=${encodeURIComponent(result.url)}`,
-			};
-		});
-	}
-	// [static imports] Convert "hot:static?specifier=..." to "hot:module:file://..."
-	if (specifier.startsWith("hot:static?")) {
-		assert.ok(context.parentURL.startsWith("hot:main?") || context.parentURL.startsWith("hot:module:"));
-		const parentURL = new URL(context.parentURL);
-		const parentModuleURL =
-			context.parentURL.startsWith("hot:main?")
-				? parentURL.searchParams.get("url") ?? ""
-				: parentURL.pathname.replace("module:", "");
-		assert.ok(parentModuleURL !== "");
-		const resolutionURL = new URL(specifier);
-		const resolutionSpecifier = resolutionURL.searchParams.get("specifier");
-		assert.ok(resolutionSpecifier !== null);
-		const importAttributes = extractImportAttributes(resolutionURL.searchParams);
-		return maybeThen(function*() {
-			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
-				...context,
-				parentURL: parentModuleURL,
-				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: importAttributes,
-			});
-			const params = new URLSearchParams(Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"));
-			return {
-				...result,
-				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: {},
-				url: `hot:module:${encodeLimited(result.url)}?${String(params)}`,
-			};
-		});
-
-	// [dynamic import] Convert "hot:dynamic?specifier=..." to "hot:module:file://..."
-	} else if (specifier.startsWith("hot:dynamic?")) {
-		const resolutionURL = new URL(specifier);
-		const resolutionSpecifier = resolutionURL.searchParams.get("specifier");
-		assert.ok(resolutionSpecifier !== null);
-		const parentModuleURL = resolutionURL.searchParams.get("parent");
-		assert.ok(parentModuleURL !== null);
-		const importAttributes = extractImportAttributes(resolutionURL.searchParams);
-		return maybeThen(function*() {
-			const result: ResolveFnOutput = yield nextResolve(resolutionSpecifier, {
-				...context,
-				parentURL: parentModuleURL,
-				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: importAttributes,
-			});
-			const params = new URLSearchParams(Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"));
-			return {
-				...result,
-				[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: {},
-				url: `hot:module:${encodeLimited(result.url)}?${String(params)}`,
-			};
-		});
-
-	// [file watcher] Convert "hot:reload?url=..." to "hot:module:file://..."
-	} else if (specifier.startsWith("hot:reload?")) {
-		const resolutionURL = new URL(specifier);
-		const resolution = resolutionURL.searchParams.get("url");
-		assert.ok(resolution !== null);
-		const version = resolutionURL.searchParams.get("version");
-		assert.ok(version !== null);
-		const format = resolutionURL.searchParams.get("format") as ModuleFormat | null;
-		assert.ok(format !== null);
-		const params = new URLSearchParams([
-			[ "version", version ],
-			...Fn.filter(resolutionURL.searchParams, entry => entry[0] === "with"),
-		]);
 		return {
+			url: "hot:main",
+			format: "module",
+			importAttributes: {
+				hot: specifier,
+			},
 			shortCircuit: true,
-			format,
-			url: `hot:module:${encodeLimited(resolution)}?${String(params)}`,
 		};
 	}
+
 	// Pass through requests for the runtime
 	if (specifier === "hot:runtime") {
 		return {
-			shortCircuit: true,
 			format: "module",
+			shortCircuit: true,
 			url: runtimeURL,
 		};
 	}
-	// This import graph has bailed from the "hot:" scheme and is just forwarded to the host.
-	const parentURL = function() {
-		if (context.parentURL.startsWith("hot:module:")) {
-			const parentURL = new URL(context.parentURL);
-			return parentURL.pathname.replace("module:", "");
-		} else {
-			return context.parentURL;
+
+	// Bail on non-hot module resolution
+	const parentModuleOrigin = extractModuleOrigin(context.parentURL);
+	const hotParam = context.importAttributes.hot;
+	if (hotParam === undefined) {
+		return nextResolve(specifier, {
+			...context,
+			parentURL: parentModuleOrigin?.moduleURL ?? context.parentURL,
+		});
+	}
+
+	// Resolve hot module controller
+	return async function() {
+		const importAttributes = extractResolverImportAttributes(context.importAttributes);
+
+		// `import {} from "./specifier"`;
+		if (hotParam === "import") {
+			const next = await nextResolve(specifier, {
+				...context,
+				importAttributes,
+				parentURL: parentModuleOrigin?.moduleURL,
+			});
+			return {
+				...next,
+				url: makeModuleOrigin(next.url, next.importAttributes),
+				importAttributes: {
+					...importAttributes,
+					...next.importAttributes,
+					hot: next.format ?? "hot",
+				},
+			};
+		}
+
+		const hot = JSON.parse(hotParam) as HotResolverPayload;
+		switch (hot.hot) {
+			// `await import(url)`
+			case "expression": {
+				const parentModuleURL = hot.parentURL;
+				const next = await nextResolve(specifier, {
+					...context,
+					importAttributes,
+					parentURL: parentModuleURL,
+				});
+				return {
+					...next,
+					url: makeModuleOrigin(next.url, next.importAttributes),
+					importAttributes: {
+						...importAttributes,
+						...next.importAttributes,
+						hot: next.format ?? "hot",
+					},
+				};
+			}
+
+			// Reload, from `hot.invalidate()` (or the file watcher that invokes it)
+			case "reload": {
+				return {
+					format: hot.format,
+					importAttributes: {
+						...importAttributes,
+						hot: hot.format,
+					},
+					shortCircuit: true,
+					url: makeModuleOrigin(specifier, importAttributes, hot.version),
+				};
+			}
 		}
 	}();
-	return nextResolve(specifier, {
-		...context,
-		parentURL,
-	});
 };
 
 /** @internal */
 export const load: LoadHook = (urlString, context, nextLoad) => {
-	if (urlString.startsWith("hot:")) {
-		const url = new URL(urlString);
-		const pathname = url.pathname;
-		switch (pathname.split(":", 1)[0]) {
-			case "adapter": {
-				const importAttributes = extractImportAttributes(url.searchParams);
-				const moduleURL = url.searchParams.get("url");
-				assert.ok(moduleURL !== null);
-				return {
-					shortCircuit: true,
-					format: "module",
-					source: makeAdapterModule(moduleURL, importAttributes),
-				};
-			}
 
-			case "main": {
-				const moduleURL = url.searchParams.get("url");
-				assert.ok(moduleURL !== null);
-				const controllerSpecifier = `hot:static?specifier=${encodeURIComponent(moduleURL)}`;
-				return {
-					shortCircuit: true,
-					format: "module",
-					source:
-						`import controller from ${JSON.stringify(controllerSpecifier)};\n` +
-						"await controller().main();\n",
-				};
-			}
-
-			case "module": return async function() {
-				const moduleURL = decodeLimited(pathname.replace("module:", ""));
-				assert.notStrictEqual(moduleURL, "");
-				const importAttributes = extractImportAttributes(url.searchParams);
-				const hot = new LoaderHot(moduleURL, port);
-				const result = await nextLoad(moduleURL, {
-					...context,
-					hot,
-					[deprecatedAssertSyntax ? "importAssertions" : "importAttributes"]: importAttributes,
-				});
-				if (!ignorePattern.test(moduleURL)) {
-					if (result.format === "module") {
-						const source = await makeReloadableModule(moduleURL, asString(result.source), importAttributes);
-						return { ...result, source };
-					} else if (result.format === "json") {
-						return {
-							...result,
-							format: "module",
-							source: makeJsonModule(moduleURL, asString(result.source), importAttributes),
-						};
-					}
-				}
-
-				// Otherwise this is an adapter module
-				return {
-					format: "module",
-					source: makeAdapterModule(moduleURL, importAttributes),
-				};
-			}();
-
-			default:
-				throw new Error(`Unknown 'hot:' URL '${urlString}'`);
-		}
+	// Early bail on node_modules or CommonJS graph
+	const hotParam = context.importAttributes.hot;
+	if (hotParam === undefined) {
+		return nextLoad(urlString, context);
 	}
 
-	// Fallback
-	return nextLoad(urlString, context);
+	// Main entrypoint shim
+	if (urlString === "hot:main") {
+		// nb: `hotParam` is the specifier, as supplied on the nodejs command line
+		return {
+			format: "module",
+			shortCircuit: true,
+			source:
+				`import controller from ${JSON.stringify(hotParam)} with { hot: "import" };\n` +
+				"await controller().main();\n",
+		};
+	}
+
+	// nb: `hotParam` is the resolved format
+	return async function() {
+
+		// Request code from next loader in the chain
+		const origin = extractModuleOrigin(urlString);
+		assert.ok(origin);
+		const hot = new LoaderHot(urlString, port);
+		const importAttributes = extractResolverImportAttributes(context.importAttributes);
+		const result = await nextLoad(origin.moduleURL, {
+			...context,
+			format: function() {
+				switch (hotParam) {
+					case "commonjs":
+					case "module":
+					case "json":
+						return hotParam;
+					default:
+						return undefined;
+				}
+			}(),
+			importAttributes,
+			hot,
+		});
+
+		// Render hot module controller
+		if (!ignorePattern.test(urlString)) {
+			switch (result.format) {
+				case "json": {
+					const source = makeJsonModule(origin, asString(result.source), importAttributes);
+					return { format: "module", source };
+				}
+				case "module": {
+					const source = await makeReloadableModule(origin, hot.get(), asString(result.source), importAttributes);
+					return { format: "module", source };
+				}
+				default: break;
+			}
+		}
+
+		// Otherwise this is an non-hot adapter module
+		const source = makeAdapterModule(origin, importAttributes);
+		return { format: "module", source };
+	}();
 };

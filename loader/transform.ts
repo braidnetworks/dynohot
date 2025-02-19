@@ -1,7 +1,9 @@
 import type { NodePath, Visitor } from "@babel/traverse";
 import type { BindingEntry } from "dynohot/runtime/binding";
+import type { ImportAttributes } from "node:module";
 import * as assert from "node:assert/strict";
 import { parse, types as t } from "@babel/core";
+import { mappedPrimitiveComparator } from "@braidai/lang/comparator";
 import { Fn } from "@braidai/lang/functional";
 import convertSourceMap from "convert-source-map";
 import { BindingType } from "dynohot/runtime/binding";
@@ -16,18 +18,16 @@ const extractName = (node: t.Identifier | t.StringLiteral) =>
 	t.isStringLiteral(node) ? node.value : node.name;
 
 interface ImportEntry {
-	identifier: string;
-	importSpecifier: string;
-	specifier: string;
+	attributes: (readonly [ string, string ])[];
 	bindings: BindingEntry[];
+	identifier: string;
+	specifier: string;
 }
-
-// version < v22
-const deprecatedAssertSyntax = /^(?:16|17|18|19|20|21)/.test(process.versions.node);
 
 export function transformModuleSource(
 	filename: string,
-	importAttributes: Record<string, string>,
+	backingURL: string | null,
+	importAttributes: ImportAttributes,
 	sourceText: string,
 	sourceMap: unknown,
 ) {
@@ -42,7 +42,7 @@ export function transformModuleSource(
 				parserOpts: {
 					plugins: [
 						"explicitResourceManagement",
-						[ "importAttributes", { deprecatedAssertSyntax } ],
+						"importAttributes",
 					],
 				},
 			});
@@ -76,11 +76,16 @@ export function transformModuleSource(
 	const sourceMapComment = result.map ? convertSourceMap.fromObject(result.map).toComment() : "";
 
 	// Make import declarations
-	const imports = Fn.join(Fn.map(
+	const imports = Fn.pipe(
 		state.importDeclarations,
-		declaration =>
-			`import ${declaration.identifier} from ${JSON.stringify(declaration.importSpecifier)};`,
-	), "\n");
+		$$ => Fn.map($$, declaration => {
+			const attributes = Object.fromEntries([
+				[ "hot", "import" ],
+				...declaration.attributes,
+			]);
+			return `import ${declaration.identifier} from ${JSON.stringify(declaration.specifier)} with ${JSON.stringify(attributes)};`;
+		}),
+		$$ => Fn.join($$, "\n"));
 	// `ModuleBody`
 	const body = `{ async: ${state.usesTopLevelAwait}, execute }`;
 	// nb: We omit `import.meta` in the case the module doesn't use it at all. No
@@ -97,7 +102,7 @@ export function transformModuleSource(
 			return `{ controller: ${declaration.identifier}, specifier: ${specifier}, bindings: ${bindings} }`;
 		},
 	), ", ")} ]`;
-	const loader = `module().load(${body}, ${importMeta}, ${state.usesDynamicImport}, "module", ${JSON.stringify(importAttributes)}, ${requestEntries});`;
+	const loader = `module().load(${JSON.stringify(backingURL)}, ${body}, ${importMeta}, ${state.usesDynamicImport}, "module", ${JSON.stringify(importAttributes)}, ${requestEntries});`;
 
 	// Build final module source
 	return `${result.code}\n${sourceMapComment}\n${imports}\n${loader}\n`;
@@ -113,38 +118,32 @@ function transformProgram(program: NodePath<t.Program>) {
 	const specifierToBindings = new Map<string, BindingEntry[]>();
 
 	interface ModuleRequestNode {
-		assertions?: t.ImportAttribute[] | null;
 		attributes?: t.ImportAttribute[] | null;
 		source?: t.StringLiteral | null;
 	}
 
 	const acquireModuleRequestBindings = (moduleRequest: ModuleRequestNode) => {
 		assert.ok(moduleRequest.source);
-		// Convert import attributes into `with` URL search parameters. That way the underlying
-		// loader can pass forward the attributes, but the runtime imports will be plain.
-		const attributes = moduleRequest.attributes ?? moduleRequest.assertions ?? [];
+		// Extract attributes as they appear in source. Sort them, since they will be used as a
+		// lookup key.
+		const attributes =
+			(moduleRequest.attributes ?? [])
+				.map(attribute => [ extractName(attribute.key), extractName(attribute.value) ] as const)
+				.sort(mappedPrimitiveComparator(entry => entry[0]));
 		const specifier = moduleRequest.source.value;
-		const params = new URLSearchParams([
-			[ "specifier", specifier ],
-			...Fn.map(
-				attributes, attribute => [
-					"with",
-					String(new URLSearchParams([ [ extractName(attribute.key), extractName(attribute.value) ] ])),
-				]),
-		] as [ string, string ][]);
-		const importSpecifier = `hot:static?${String(params)}`;
-		return specifierToBindings.get(importSpecifier) ?? function() {
+		const bindingKey = JSON.stringify([ specifier, attributes ]);
+		return specifierToBindings.get(bindingKey) ?? function() {
 			const identifierFragment = specifier
 				// "$" becomes our escape character
 				.replaceAll("$", "$$")
 				// Replace (for example) "-" with "$002d"
 				.replaceAll(/[^A-Za-z0-9_]/g, char => `$${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
 			const bindings: BindingEntry[] = [];
-			specifierToBindings.set(importSpecifier, bindings);
+			specifierToBindings.set(bindingKey, bindings);
 			importDeclarations.push({
+				attributes,
 				bindings,
 				identifier: `_${identifierFragment}`,
-				importSpecifier,
 				specifier,
 			});
 			return bindings;

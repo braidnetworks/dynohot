@@ -1,3 +1,4 @@
+import type { HotResolverPayload } from "#dynohot/loader/loader";
 import type { BindingEntry, ExportIndirectEntry, ExportIndirectStarEntry, ExportStarEntry } from "./binding.js";
 import type { DynamicImport, LoadedModuleRequestEntry, ModuleBody, ModuleDeclaration } from "./declaration.js";
 import type { AbstractModuleController } from "./module.js";
@@ -24,7 +25,6 @@ export function makeAcquire(dynamicImport: DynamicImport, params: Record<string,
 		dynamicImport,
 		emitter,
 		fileWatcher: new FileWatcher(),
-		loaderPort: port,
 		requestUpdate: defaultRequestUpdate,
 		requestUpdateResult: defaultRequestUpdateResult,
 		log(message, ...params) {
@@ -35,9 +35,16 @@ export function makeAcquire(dynamicImport: DynamicImport, params: Record<string,
 		},
 	};
 	const modules = new Map<string, ReloadableModuleController>();
-	return function acquire(url: string) {
+	if (port) {
+		port.on("message", (message: string) => {
+			void modules.get(message)?.reload();
+		});
+		// nb: The `on` method re-refs the port. Truly incredible, wow!
+		port.unref();
+	}
+	return function acquire(url: string, watch?: readonly string[]) {
 		return modules.get(url) ?? function() {
-			const module = new ReloadableModuleController(application, url);
+			const module = new ReloadableModuleController(application, url, watch);
 			modules.set(url, module);
 			return module;
 		}();
@@ -57,7 +64,6 @@ export interface HotApplication {
 	dynamicImport: DynamicImport;
 	emitter: EventEmitter;
 	fileWatcher: FileWatcher;
-	loaderPort: MessagePort | undefined;
 	log: (message: string, ...params: unknown[]) => void;
 	requestUpdate: () => Promise<void>;
 	requestUpdateResult: () => Promise<UpdateResult>;
@@ -211,11 +217,6 @@ function *flattenInvalidationTree(chain: InvalidationChain, prefix = "", childre
 	}
 }
 
-// nb: Copy/pasted from loader
-function encodeLimited(content: string) {
-	return content.replace(/[#%?]/g, char => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`);
-}
-
 const acquireVisitIndex = makeAcquireVisitIndex();
 
 /** @internal */
@@ -242,38 +243,17 @@ export class ReloadableModuleController implements AbstractModuleController {
 	constructor(
 		application: HotApplication,
 		url: string,
+		watch?: readonly string[],
 	) {
 		this.application = application;
 		this.url = url;
-
-		const reload = () => void (async () => {
-			const instance = this.staging ?? this.current;
-			assert.ok(instance !== undefined);
-			const { importAttributes } = instance.declaration;
-			const params = new URLSearchParams([
-				[ "url", this.url ],
-				[ "version", String(++this.version) ],
-				[ "format", instance.declaration.format ],
-				...Fn.map(
-					Object.entries(importAttributes),
-					([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
-			] as Iterable<[ string, string ]>);
-			try {
-				await import(`hot:reload?${String(params)}`);
-			} catch (error) {
-				this.application.log(`Error in module '%s':${EOL}%O`, this.url, error);
-				return;
-			}
-			void this.application.requestUpdate();
-		})();
 		// TODO [marcel 2025-02-05]: This returns a handle to an unlistener which should probably be
 		// invoked on `prune`.
-		application.fileWatcher.watch(this.url, reload);
-		application.loaderPort?.on("message", message => {
-			if (message === this.url) {
-				reload();
+		if (watch) {
+			for (const url of watch) {
+				application.fileWatcher.watch(url, () => void this.reload());
 			}
-		});
+		}
 	}
 
 	private static selectCurrent(this: void, controller: ReloadableModuleController) {
@@ -361,6 +341,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 
 	// Invoked from transformed module source
 	load(
+		backingModuleURL: string | null,
 		body: ModuleBody,
 		meta: ImportMeta | null,
 		usesDynamicImport: boolean,
@@ -370,13 +351,7 @@ export class ReloadableModuleController implements AbstractModuleController {
 	) {
 		if (evictModule) {
 			// Experimental module eviction
-			if (this.version !== 0) {
-				const backingModuleParams = new URLSearchParams([
-					[ "version", String(this.version) ],
-					...Object.entries(importAttributes).map(
-						([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
-				] as Iterable<[ string, string ]>);
-				const backingModuleURL = `hot:module:${encodeLimited(this.url)}?${String(backingModuleParams)}`;
+			if (backingModuleURL !== null) {
 				evictModule(backingModuleURL);
 			}
 		}
@@ -409,6 +384,28 @@ export class ReloadableModuleController implements AbstractModuleController {
 			}()),
 		};
 		this.staging = new ReloadableModuleInstance(this, declaration);
+	}
+
+	async reload() {
+		const instance = this.staging ?? this.current;
+		assert.ok(instance !== undefined);
+		const { importAttributes } = instance.declaration;
+		const directive: HotResolverPayload = {
+			hot: "reload",
+			format: instance.declaration.format,
+			version: ++this.version,
+		};
+		const attributes: ImportAttributes = {
+			...importAttributes,
+			hot: JSON.stringify(directive),
+		};
+		try {
+			await import(this.url, { with: attributes });
+		} catch (error) {
+			this.application.log(`Error in module '%s':${EOL}%O`, this.url, error);
+			return;
+		}
+		void this.application.requestUpdate();
 	}
 
 	select(select = ReloadableModuleController.selectCurrent) {

@@ -24,7 +24,7 @@ export interface ModuleDeclaration {
 export type ModuleBody = ModuleBodySync | ModuleBodyAsync;
 
 /** @internal */
-export type DynamicImport = (specifier: string, importAttributes?: Record<string, string>) => Promise<ModuleNamespace>;
+export type DynamicImport = (specifier: string, importAttributes: Record<string, string>) => Promise<ModuleNamespace>;
 
 interface ModuleBodySync {
 	async: false;

@@ -71,7 +71,7 @@ export class TestModule {
 				import("hot:test/reloadable"),
 			]);
 			export const acquire = Reloadable.makeAcquire(
-				(specifier, attributes) => import(specifier, attributes),
+				(specifier, attributes) => import(specifier, { with: attributes }),
 				{ silent: true },
 				undefined);
 			export const adapter = Adapter.adapter;
@@ -83,20 +83,14 @@ export class TestModule {
 			});
 	}
 
-	private static link(this: void, environment: Environment, specifier: string) {
+	private static link(environment: Environment, specifier: string) {
 		switch (specifier) {
 			case "hot:runtime": return environment.runtime;
-			default:
-				if (specifier.startsWith("hot:static?")) {
-					const url = new URL(specifier);
-					const moduleURL = url.searchParams.get("specifier");
-					assert.ok(moduleURL !== null);
-					const module = modules.get(moduleURL);
-					assert.ok(module !== undefined);
-					return module.instantiate(environment);
-				} else {
-					throw new Error(`Unexpected specifier: ${specifier}`);
-				}
+			default: {
+				const module = modules.get(specifier);
+				assert.ok(module !== undefined);
+				return module.instantiate(environment);
+			}
 		}
 	}
 
@@ -105,19 +99,13 @@ export class TestModule {
 			case "node:assert/strict": return assert;
 			case "hot:test/adapter": return adapter;
 			case "hot:test/reloadable": return reloadable;
-			default:
-				if (specifier.startsWith("hot:dynamic?")) {
-					const url = new URL(specifier);
-					const moduleURL = url.searchParams.get("specifier");
-					assert.ok(moduleURL !== null);
-					const module = modules.get(moduleURL);
-					assert.ok(module !== undefined);
-					const vm = module.instantiate(environment);
-					await module.linkAndEvaluate();
-					return vm;
-				} else {
-					throw new Error(`Unexpected specifier: ${specifier}`);
-				}
+			default: {
+				const module = modules.get(specifier);
+				assert.ok(module !== undefined);
+				const vm = module.instantiate(environment);
+				await module.linkAndEvaluate();
+				return vm;
+			}
 		}
 	}
 
@@ -167,7 +155,7 @@ export class TestModule {
 			assert.ok(this.environment === undefined || this.environment === environment);
 			this.environment = environment;
 			const source =
-				transformModuleSource(this.url, {}, this.source(), undefined) +
+				transformModuleSource(this.url, null, {}, this.source(), undefined) +
 				'import { acquire } from "hot:runtime";' +
 				`export default function module() { return acquire(${JSON.stringify(this.url)}); }\n`;
 			return this.vm = new HotInstanceSourceModule(source, {
@@ -188,11 +176,12 @@ export class TestModule {
 	}
 
 	private async linkAndEvaluate() {
-		assert.ok(this.environment !== undefined);
-		assert.ok(this.vm !== undefined);
-		if (this.vm.status === "unlinked") {
-			await this.vm.link(TestModule.link.bind(undefined, this.environment));
-			await this.vm.evaluate();
+		const { environment, vm } = this;
+		assert.ok(environment !== undefined);
+		assert.ok(vm !== undefined);
+		if (vm.status === "unlinked") {
+			await vm.link(specifier => TestModule.link(environment, specifier));
+			await vm.evaluate();
 		}
 	}
 }

@@ -1,3 +1,4 @@
+import type { HotResolverPayload } from "#dynohot/loader/loader";
 import type { ModuleDeclaration } from "./declaration.js";
 import type { Data } from "./hot.js";
 import type { AbstractModuleInstance, ModuleController, ModuleExports, ModuleNamespace, Resolution, SelectModuleInstance } from "./module.js";
@@ -501,14 +502,15 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			this.state.status === ModuleStatus.evaluating ||
 			this.state.status === ModuleStatus.evaluatingAsync ||
 			this.state.status === ModuleStatus.evaluated);
-		const specifierParams = new URLSearchParams([
-			[ "parent", this.controller.url ],
-			[ "specifier", specifier ],
-			...Fn.map(
-				Object.entries(importAttributes ?? {}),
-				([ key, value ]) => [ "with", String(new URLSearchParams([ [ key, value ] ])) ]),
-		] as [ string, string ][]);
-		const moduleNamespace = await this.controller.application.dynamicImport(`hot:dynamic?${String(specifierParams)}`, importAttributes);
+		const hot: HotResolverPayload = {
+			hot: "expression",
+			parentURL: this.controller.url,
+		};
+		const withAttributes: ImportAttributes = {
+			...importAttributes,
+			hot: JSON.stringify(hot),
+		};
+		const moduleNamespace = await this.controller.application.dynamicImport(specifier, withAttributes);
 		const moduleAdapter = moduleNamespace satisfies ModuleNamespace as unknown as ModuleAdapter;
 		const controller: ModuleController = moduleAdapter.default();
 		didDynamicImport(this, controller);

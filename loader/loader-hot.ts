@@ -10,6 +10,7 @@ import type { MessagePort } from "node:worker_threads";
  */
 export class LoaderHot {
 	readonly #port;
+	readonly #watch: string[] = [];
 	readonly #url;
 
 	/** @internal */
@@ -18,8 +19,28 @@ export class LoaderHot {
 		this.#url = url;
 	}
 
+	/** @internal */
+	get() {
+		if (this.#watch.length === 0) {
+			return [ this.#url ];
+		} else {
+			return this.#watch;
+		}
+	}
+
+	/**
+	 * Can be invoked at a later time by a given loader to invalidate the module.
+	 */
 	invalidate(): void {
 		this.#port.postMessage(this.#url);
+	}
+
+	/**
+	 * If invoked then the given file `url` will be watched for changes instead of the loader's
+	 * `url` result.
+	 */
+	watch(url: URL): void {
+		this.#watch.push(url.href);
 	}
 }
 
