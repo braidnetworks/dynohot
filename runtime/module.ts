@@ -2,6 +2,7 @@ import type { AdapterModuleController } from "./adapter.js";
 import type { ReloadableModuleController } from "./controller.js";
 import type { IndirectExportEntry, StarExportEntry } from "./declaration.js";
 import type { ReloadableModuleInstance } from "./instance.js";
+import type { MaybePromise } from "./utility.js";
 
 // 16.2.1.5 Cyclic Module Records
 /** @internal */

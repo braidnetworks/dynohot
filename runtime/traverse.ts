@@ -1,4 +1,4 @@
-import type { NotPromiseLike } from "./utility.js";
+import type { MaybePromise, NotPromiseLike } from "./utility.js";
 import * as assert from "node:assert/strict";
 import { mappedNumericComparator } from "@braidai/lang/comparator";
 import { Fn } from "@braidai/lang/functional";

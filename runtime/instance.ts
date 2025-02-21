@@ -3,7 +3,7 @@ import type { ModuleDeclaration } from "./declaration.js";
 import type { Data } from "./hot.js";
 import type { AbstractModuleInstance, ModuleController, ModuleExports, ModuleInstance, ModuleNamespace, Resolution, SelectModuleInstance } from "./module.js";
 import type { ModuleAdapter } from "./runtime.js";
-import type { WithResolvers } from "./utility.js";
+import type { MaybePromise, WithResolvers } from "./utility.js";
 import * as assert from "node:assert/strict";
 import { mappedPrimitiveComparator } from "@braidai/lang/comparator";
 import { Fn } from "@braidai/lang/functional";

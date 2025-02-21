@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 import { Fn } from "@braidai/lang/functional";
 
 /** @internal */
+export type MaybePromise<Type> = Type | Promise<Type>;
+
+/** @internal */
 export type NotPromiseLike =
 	null | undefined |
 	(bigint | boolean | number | object | string) &

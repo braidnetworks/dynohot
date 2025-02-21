@@ -1,5 +1,6 @@
 import type { ReloadableModuleInstance } from "./instance.js";
 import type { ModuleController } from "./module.js";
+import type { MaybePromise } from "./utility.js";
 import * as assert from "node:assert/strict";
 import { EOL } from "node:os";
 import { Fn } from "@braidai/lang/functional";
