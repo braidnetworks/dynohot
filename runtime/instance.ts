@@ -77,6 +77,8 @@ interface ModuleContinuationAsync {
 	readonly iterator: AsyncIterator<unknown, void, ModuleExports>;
 }
 
+const ambiguousIndirectResolution = () => { throw new Error("Ambiguous"); };
+
 /** @internal */
 export class ReloadableModuleInstance implements AbstractModuleInstance {
 	readonly declaration: ModuleDeclaration;
@@ -355,52 +357,72 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			assert.ok(this.state.status !== ModuleStatus.new);
 			const namespace = Object.create(null) as Record<string, unknown>;
 			this.namespace ??= () => namespace;
-			const ambiguousNames = new Set<string>();
-			const resolutions = new Map<string, () => unknown>();
-			const seen = new Set<ModuleInstance>();
-			(function traverse(instance: ModuleInstance) {
-				if (seen.has(instance)) {
-					return;
-				} else {
-					seen.add(instance);
-				}
-				for (const [ name, resolution ] of instance.directExports()) {
-					if (name !== "default") {
-						const previousResolution = resolutions.get(name);
-						if (previousResolution === undefined) {
-							resolutions.set(name, resolution);
-						} else if (previousResolution !== resolution) {
-							ambiguousNames.add(name);
-						}
-					}
-				}
+
+			const collectNamedExports = function*(instance: ModuleInstance) {
+				// Local names
+				yield* instance.directExports();
+
+				// Named indirect exports
 				for (const entry of instance.indirectExportEntries()) {
-					const instance = entry.moduleRequest.controller().select(select);
 					if (entry.binding.type === BindingType.indirectExport) {
+						const name = entry.binding.as ?? entry.binding.name;
 						const resolution = instance.resolveExport(entry.binding.name, select, undefined);
 						assert.ok(resolution != null);
-						resolutions.set(entry.binding.as ?? entry.binding.name, resolution);
+						yield [ name, resolution ] as const;
 					} else {
 						assert.equal(entry.binding.type, BindingType.indirectStarExport);
-						resolutions.set(entry.binding.as, instance.moduleNamespace(select));
+						const name = entry.binding.as;
+						const resolution = entry.moduleRequest.controller().select(select).moduleNamespace();
+						yield [ name, resolution ] as const;
 					}
 				}
-				for (const entry of instance.starExportEntries()) {
-					traverse(entry.moduleRequest.controller().select(select));
-				}
-			})(this);
-			const thisDefault = this.state.environment.exports.default;
-			if (thisDefault) {
-				resolutions.set("default", thisDefault);
+			};
+
+			// Resolve directly exported names
+			const directResolutions = new Map(collectNamedExports(this));
+
+			// Resolve indirect star exports
+			const seen = new Set<ModuleInstance>([ this ]);
+			const indirectResolutions = new Map<string, () => unknown>();
+			for (const entry of this.starExportEntries()) {
+				const instance = entry.moduleRequest.controller().select(select);
+				(function traverse(instance: ModuleInstance) {
+					if (seen.has(instance)) {
+						return;
+					} else {
+						seen.add(instance);
+					}
+					for (const [ name, resolution ] of collectNamedExports(instance)) {
+						if (name !== "default") {
+							const previousResolution = indirectResolutions.get(name);
+							if (previousResolution === undefined) {
+								indirectResolutions.set(name, resolution);
+							} else if (previousResolution !== resolution) {
+								indirectResolutions.set(name, ambiguousIndirectResolution);
+							}
+						}
+					}
+					for (const entry of instance.starExportEntries()) {
+						traverse(entry.moduleRequest.controller().select(select));
+					}
+				})(instance);
 			}
-			const unambiguousResolutions = Array.from(
-				Fn.filter(resolutions, ([ name ]) => !ambiguousNames.has(name)));
-			unambiguousResolutions.sort(mappedPrimitiveComparator(([ name ]) => name));
-			Object.defineProperties(
-				namespace,
-				Object.fromEntries(Fn.map(
-					unambiguousResolutions,
-					([ name, get ]) => [ name, { ...moduleNamespacePropertyDescriptor, get } ])));
+
+			// Combine direct & indirect exports
+			const unambiguousIndirectResolutions =
+				Fn.reject(indirectResolutions, ([ name, resolution ]) =>
+					resolution === ambiguousIndirectResolution || directResolutions.has(name));
+			const namespaceDescriptors = Fn.pipe(
+				Fn.concat([ directResolutions, unambiguousIndirectResolutions ]),
+				$$ => Fn.map($$, ([ name, resolution ]) => {
+					const descriptor = { ...moduleNamespacePropertyDescriptor, get: resolution };
+					return [ name, descriptor ] as const;
+				}),
+				$$ => [ ...$$ ],
+				$$ => $$.sort(mappedPrimitiveComparator(([ name ]) => name)),
+				$$ => [ ...$$ ],
+			);
+			Object.defineProperties(namespace, Object.fromEntries(namespaceDescriptors));
 			Object.freeze(namespace);
 		}
 		return this.namespace;

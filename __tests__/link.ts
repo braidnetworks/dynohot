@@ -168,3 +168,35 @@ await test("re-export from adapter module", async () => {
 		assert.strictEqual(utility.identifier, "hello world");`);
 	await main.dispatch();
 });
+
+await test("explicit shadowed export", async () => {
+	const one = new TestModule(() =>
+		"export const id = 1;");
+	const two = new TestModule(() =>
+		`export * from ${one};
+		export const id = 2;`);
+	const main = new TestModule(() =>
+		`import * as utility from ${two};
+		assert.strictEqual(utility.id, 2);`);
+	await main.dispatch();
+});
+
+await test("duplicate re-export", async () => {
+	const dep = new TestModule(() =>
+		"export const id = 1;");
+	const barrel = new TestModule(() =>
+		`export { id, id } from ${dep};`);
+	await assert.rejects(() => barrel.dispatch());
+});
+
+await test("named export of module namespace", async () => {
+	const one = new TestModule(() =>
+		"export const id = 1;");
+	const two = new TestModule(() =>
+		`import * as ns from ${one};
+		export { ns };`);
+	const main = new TestModule(() =>
+		`import * as two from ${two};
+		assert.strictEqual(two.ns.id, 1);`);
+	await main.dispatch();
+});
