@@ -1,7 +1,7 @@
 import type { HotResolverPayload } from "#dynohot/loader/loader";
 import type { ModuleDeclaration } from "./declaration.js";
 import type { Data } from "./hot.js";
-import type { AbstractModuleInstance, ModuleController, ModuleExports, ModuleNamespace, Resolution, SelectModuleInstance } from "./module.js";
+import type { AbstractModuleInstance, ModuleController, ModuleExports, ModuleInstance, ModuleNamespace, Resolution, SelectModuleInstance } from "./module.js";
 import type { ModuleAdapter } from "./runtime.js";
 import type { WithResolvers } from "./utility.js";
 import * as assert from "node:assert/strict";
@@ -334,6 +334,19 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 		yield* Fn.map(this.dynamicImports, instance => instance.controller);
 	}
 
+	directExports() {
+		assert.ok(this.state.status !== ModuleStatus.new);
+		return Object.entries(this.state.environment.exports);
+	}
+
+	indirectExportEntries() {
+		return this.declaration.indirectExportEntries.values();
+	}
+
+	starExportEntries() {
+		return this.declaration.starExportEntries;
+	}
+
 	// 10.4.6.12 ModuleNamespaceCreate ( module, exports )
 	// 16.2.1.6.2 GetExportedNames ( [ exportStarSet ] )
 	// 16.2.1.10 GetModuleNamespace ( module )
@@ -344,38 +357,36 @@ export class ReloadableModuleInstance implements AbstractModuleInstance {
 			this.namespace ??= () => namespace;
 			const ambiguousNames = new Set<string>();
 			const resolutions = new Map<string, () => unknown>();
-			const seen = new Set<ReloadableModuleInstance>();
-			(function traverse(instance: ReloadableModuleInstance) {
-				if (!seen.has(instance)) {
+			const seen = new Set<ModuleInstance>();
+			(function traverse(instance: ModuleInstance) {
+				if (seen.has(instance)) {
+					return;
+				} else {
 					seen.add(instance);
-					assert.ok(instance.state.status !== ModuleStatus.new);
-					for (const [ name, resolution ] of Object.entries(instance.state.environment.exports)) {
-						if (name !== "default") {
-							const previousResolution = resolutions.get(name);
-							if (previousResolution === undefined) {
-								resolutions.set(name, resolution);
-							} else if (previousResolution !== resolution) {
-								ambiguousNames.add(name);
-							}
+				}
+				for (const [ name, resolution ] of instance.directExports()) {
+					if (name !== "default") {
+						const previousResolution = resolutions.get(name);
+						if (previousResolution === undefined) {
+							resolutions.set(name, resolution);
+						} else if (previousResolution !== resolution) {
+							ambiguousNames.add(name);
 						}
 					}
-					for (const entry of instance.declaration.indirectExportEntries.values()) {
-						const instance = entry.moduleRequest.controller().select(select);
-						if (entry.binding.type === BindingType.indirectExport) {
-							const resolution = instance.resolveExport(entry.binding.name, select, undefined);
-							assert.ok(resolution != null);
-							resolutions.set(entry.binding.as ?? entry.binding.name, resolution);
-						} else {
-							assert.equal(entry.binding.type, BindingType.indirectStarExport);
-							resolutions.set(entry.binding.as, instance.moduleNamespace(select));
-						}
+				}
+				for (const entry of instance.indirectExportEntries()) {
+					const instance = entry.moduleRequest.controller().select(select);
+					if (entry.binding.type === BindingType.indirectExport) {
+						const resolution = instance.resolveExport(entry.binding.name, select, undefined);
+						assert.ok(resolution != null);
+						resolutions.set(entry.binding.as ?? entry.binding.name, resolution);
+					} else {
+						assert.equal(entry.binding.type, BindingType.indirectStarExport);
+						resolutions.set(entry.binding.as, instance.moduleNamespace(select));
 					}
-					for (const entry of instance.declaration.starExportEntries) {
-						const instance = entry.moduleRequest.controller().select(select);
-						if (instance.reloadable) {
-							traverse(instance);
-						}
-					}
+				}
+				for (const entry of instance.starExportEntries()) {
+					traverse(entry.moduleRequest.controller().select(select));
 				}
 			})(this);
 			const thisDefault = this.state.environment.exports.default;

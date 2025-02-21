@@ -2,7 +2,7 @@
 import * as assert from "node:assert/strict";
 import { test } from "node:test";
 import { UpdateStatus } from "dynohot/runtime/controller";
-import { TestModule } from "./__fixtures__/module.js";
+import { TestAdapterModule, TestModule } from "./__fixtures__/module.js";
 
 await test("as default", async () => {
 	const main = new TestModule(() =>
@@ -152,5 +152,19 @@ await test("hoisted function with dynamic import", async () => {
 		`import { fn } from ${main};
 		await fn();`);
 	const extra = new TestModule(() => "");
+	await main.dispatch();
+});
+
+await test("re-export from adapter module", async () => {
+	const adapter = new TestAdapterModule({
+		default: "default",
+		identifier: "hello world",
+	});
+	const utility = new TestModule(() =>
+		`export * from ${adapter}`);
+	const main = new TestModule(() =>
+		`import * as utility from ${utility};
+		assert.strictEqual(utility.default, undefined);
+		assert.strictEqual(utility.identifier, "hello world");`);
 	await main.dispatch();
 });

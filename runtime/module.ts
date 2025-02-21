@@ -1,5 +1,6 @@
 import type { AdapterModuleController } from "./adapter.js";
 import type { ReloadableModuleController } from "./controller.js";
+import type { IndirectExportEntry, StarExportEntry } from "./declaration.js";
 import type { ReloadableModuleInstance } from "./instance.js";
 
 // 16.2.1.5 Cyclic Module Records
@@ -33,6 +34,11 @@ export interface AbstractModuleController {
  */
 export interface AbstractModuleInstance {
 	state: { status: ModuleStatus };
+
+	directExports: () => Iterable<readonly [ string, ResolvedBinding ]>;
+	indirectExportEntries: () => Iterable<IndirectExportEntry>;
+	starExportEntries: () => Iterable<StarExportEntry>;
+
 	moduleNamespace: (select: SelectModuleInstance) => ResolvedBinding<ModuleNamespace>;
 	resolveExport: (
 		exportName: string,

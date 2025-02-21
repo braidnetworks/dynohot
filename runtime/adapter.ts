@@ -42,6 +42,18 @@ export class AdapterModuleController implements AbstractModuleController, Abstra
 		console.warn(`'${this.url}' is not ESM; hot module reloading is disabled`);
 	}
 
+	directExports() {
+		return this.resolutions;
+	}
+
+	indirectExportEntries() {
+		return [];
+	}
+
+	starExportEntries() {
+		return [];
+	}
+
 	moduleNamespace() {
 		return this.namespace;
 	}

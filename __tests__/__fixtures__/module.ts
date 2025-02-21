@@ -7,7 +7,12 @@ import * as reloadable from "#dynohot/runtime/controller";
 import { ReloadableModuleController } from "#dynohot/runtime/controller";
 
 let count = 0;
-const modules = new Map<string, TestModule>();
+const modules = new Map<string, LinkableModule>();
+
+interface LinkableModule {
+	instantiate: (environment: Environment) => SourceTextModule;
+	linkAndEvaluate?: () => Promise<void>;
+}
 
 // @ts-expect-error -- This was backported some time in nodejs v18.
 Symbol.dispose ??= Symbol.for("Symbol.dispose");
@@ -39,7 +44,7 @@ class HotInstanceSourceModule extends SourceTextModule {
 }
 
 /** @internal */
-export class TestModule {
+export class TestModule implements LinkableModule {
 	private environment: Environment | undefined;
 	private vm: HotInstanceSourceModule | undefined;
 	private readonly url = `test:///module${++count}`;
@@ -73,7 +78,9 @@ export class TestModule {
 				(specifier, attributes) => import(specifier, { with: attributes }),
 				{ silent: true },
 				undefined);
-			export const adapter = Adapter.adapter;
+			export function adapter(url, namespace) {
+				return new Adapter.AdapterModuleController(url, namespace);
+			}
 			globalThis.assert = assert;\n`, {
 				context: environment.context,
 				// @ts-expect-error -- Types incorrect, since `importModuleDynamically` can accept
@@ -102,7 +109,7 @@ export class TestModule {
 				const module = modules.get(specifier);
 				assert.ok(module !== undefined);
 				const vm = module.instantiate(environment);
-				await module.linkAndEvaluate();
+				await module.linkAndEvaluate?.();
 				return vm;
 			}
 		}
@@ -137,19 +144,7 @@ export class TestModule {
 		return this.vm.namespace.default().application.requestUpdateResult();
 	}
 
-	update(source?: () => string) {
-		assert.ok(this.environment !== undefined);
-		if (source) {
-			this.source = source;
-		}
-		this.environment.pending.push(this);
-	}
-
-	toString() {
-		return JSON.stringify(this.url);
-	}
-
-	private instantiate(environment: Environment): HotInstanceSourceModule {
+	instantiate(environment: Environment) {
 		if (this.vm === undefined) {
 			assert.ok(this.environment === undefined || this.environment === environment);
 			this.environment = environment;
@@ -174,7 +169,7 @@ export class TestModule {
 		}
 	}
 
-	private async linkAndEvaluate() {
+	async linkAndEvaluate() {
 		const { environment, vm } = this;
 		assert.ok(environment !== undefined);
 		assert.ok(vm !== undefined);
@@ -182,5 +177,46 @@ export class TestModule {
 			await vm.link(specifier => TestModule.link(environment, specifier));
 			await vm.evaluate();
 		}
+	}
+
+	toString() {
+		return JSON.stringify(this.url);
+	}
+
+	update(source?: () => string) {
+		assert.ok(this.environment !== undefined);
+		if (source) {
+			this.source = source;
+		}
+		this.environment.pending.push(this);
+	}
+}
+
+/** @internal */
+export class TestAdapterModule implements LinkableModule {
+	private readonly namespace;
+	private readonly url = `test:///module${++count}`;
+
+	constructor(namespace: Record<string, unknown>) {
+		this.namespace = namespace;
+		modules.set(this.url, this);
+	}
+
+	instantiate(environment: Environment) {
+		const global = environment.runtime.context;
+		global[this.url] = this.namespace;
+		const source =
+			`const namespace = globalThis[${JSON.stringify(this.url)}];
+			import { adapter } from "hot:runtime";
+			const module = adapter(${JSON.stringify(this.url)}, namespace);
+			export default function() { return module; };\n`;
+		return new SourceTextModule(source, {
+			context: environment.context,
+			identifier: this.url,
+		});
+	}
+
+	toString() {
+		return JSON.stringify(this.url);
 	}
 }

@@ -9,15 +9,21 @@ export interface ModuleDeclaration {
 	readonly format: ModuleFormat;
 	readonly importAttributes: Record<string, string>;
 	readonly usesDynamicImport: boolean;
-	readonly indirectExportEntries: ReadonlyMap<string, {
-		readonly moduleRequest: LoadedModuleRequestEntry;
-		readonly binding: ExportIndirectEntry | ExportIndirectStarEntry;
-	}>;
-	readonly starExportEntries: readonly {
-		readonly moduleRequest: LoadedModuleRequestEntry;
-		readonly binding: ExportStarEntry;
-	}[];
+	readonly indirectExportEntries: ReadonlyMap<string, IndirectExportEntry>;
+	readonly starExportEntries: readonly StarExportEntry[];
 	readonly loadedModules: readonly LoadedModuleRequestEntry[];
+}
+
+/** @internal */
+export interface IndirectExportEntry {
+	readonly moduleRequest: LoadedModuleRequestEntry;
+	readonly binding: ExportIndirectEntry | ExportIndirectStarEntry;
+}
+
+/** @internal */
+export interface StarExportEntry {
+	readonly moduleRequest: LoadedModuleRequestEntry;
+	readonly binding: ExportStarEntry;
 }
 
 /** @internal */
