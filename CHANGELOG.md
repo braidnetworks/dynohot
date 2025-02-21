@@ -1,5 +1,11 @@
 # dynohot
 
+## 2.1.1
+
+### Patch Changes
+
+- 0031498: Additional named indirect export fixes
+
 ## 2.1.0
 
 ### Minor Changes
